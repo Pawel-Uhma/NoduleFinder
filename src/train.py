@@ -1,34 +1,75 @@
-#!/usr/bin/env python
 import torch
-from data_loader import get_dataloaders
-from model import load_or_train_model
-import evaluate
-from config_loader import load_config  # ✅ Using centralized config
+import os
+import logging
+from model import ModelFactory
+from torch.optim.lr_scheduler import StepLR
+from tqdm import tqdm
+from plots import plot_loss  
 
-def main():
-    cfg = load_config()
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-    annotations_csv = cfg["annotations_coco_csv"]
-    images_dir = cfg["training_images_path"]
-    model_file = cfg["model_file"]
-    img_dim = cfg.get("dimension", 256)
-    batch_size = cfg.get("batch_size", 4)
-    train_split = cfg.get("train_split", 0.8)
-    num_workers = cfg.get("num_workers", 4)
-    num_epochs = cfg.get("num_epochs", 40)
-    num_classes = cfg.get("num_classes", 2)
+class Trainer:
+    def __init__(self, model, optimizer, device):
+        self.model = model
+        self.optimizer = optimizer
+        self.device = device
+        self.loss_history = []
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🖥️  Using device: {device}")
+    def train(self, dataloader, num_epochs, scheduler=None):
+        logger.info("🚀 Starting training loop...")
+        self.model.to(self.device)
+        self.model.train()
 
-    train_loader, test_loader = get_dataloaders(
-        annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers
-    )
+        for epoch in range(num_epochs):
+            logger.info(f"🔁 Epoch {epoch+1}/{num_epochs}...")
+            epoch_loss = 0.0
+            # Using tqdm for batch-level progress visualization
+            for batch_idx, (images, targets) in enumerate(tqdm(dataloader, desc=f"Epoch {epoch+1}")):
+                images = [img.to(self.device) for img in images]
+                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+                loss_dict = self.model(images, targets)
+                losses = sum(loss for loss in loss_dict.values())
+                
+                self.optimizer.zero_grad()
+                losses.backward()
+                self.optimizer.step()
 
-    model = load_or_train_model(model_file, num_classes, train_loader, device, num_epochs)
-    print("✅ Training completed.")
+                epoch_loss += losses.item()
 
-    evaluate.evaluate_model(model, test_loader, device)
+            avg_loss = epoch_loss / len(dataloader)
+            logger.info(f"📉 Epoch {epoch+1} complete. Avg Loss: {avg_loss:.4f}")
+            self.loss_history.append(avg_loss)
+            
+            if scheduler is not None:
+                scheduler.step()
 
-if __name__ == "__main__":
-    main()
+        return self.loss_history
+
+def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs,plots_file) -> torch.nn.Module:
+    logger.info(f"📂 Checking for model at: {model_file}")
+    os.makedirs(os.path.dirname(model_file), exist_ok=True)
+
+    if os.path.exists(model_file):
+        logger.info("📦 Model file found. Loading saved model...")
+        model = ModelFactory.get_model(num_classes)
+        model.load_state_dict(torch.load(model_file))
+        logger.info("✅ Model loaded from disk")
+    else:
+        logger.info("❌ Model not found. Starting training...")
+        model = ModelFactory.get_model(num_classes)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
+        # Learning rate scheduler: decay LR by 0.1 every 10 epochs
+        scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+        trainer = Trainer(model, optimizer, device)
+        loss_history = trainer.train(train_dataloader, num_epochs, scheduler)
+        
+        # Plot training loss
+        plot_loss(loss_history, title="Training Loss", filename=plots_file)
+        
+        torch.save(model.state_dict(), model_file)
+        logger.info(f"💾 Model trained and saved to: {model_file}")
+
+    logger.info("✅ Model ready to use")
+    return model

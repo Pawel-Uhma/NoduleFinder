@@ -1,5 +1,5 @@
 import csv
-from src.config_loader import load_config  
+from config_loader import load_config  
 
 def convert_annotations(csv_in, csv_out, dim):
     with open(csv_in, newline='') as f:
