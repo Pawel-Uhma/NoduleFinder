@@ -9,7 +9,7 @@ def main():
     cfg = load_config()
 
     annotations_csv = cfg["annotations_coco_csv"]
-    images_dir = cfg["processed_path"]
+    images_dir = cfg["training_images_path"]
     model_file = cfg["model_file"]
     img_dim = cfg.get("dimension", 256)
     batch_size = cfg.get("batch_size", 4)
