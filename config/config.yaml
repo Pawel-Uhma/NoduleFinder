@@ -1,0 +1,11 @@
+annotations_csv: "./data/annotations.csv"
+annotations_coco_csv: "./data/annotations_coco.csv"
+training_images_path: "./data/training_nodules"
+model_file: "./models/trained_model"
+
+dimension: 256
+batch_size: 4
+num_workers: 4
+train_split: 0.8
+num_epochs: 40
+num_classes: 2

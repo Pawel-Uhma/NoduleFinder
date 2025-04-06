@@ -1,8 +1,5 @@
-import os, yaml, csv
-
-def load_config(path="config.yaml"):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+import csv
+from src.config_loader import load_config  
 
 def convert_annotations(csv_in, csv_out, dim):
     with open(csv_in, newline='') as f:
@@ -25,11 +22,15 @@ def convert_annotations(csv_in, csv_out, dim):
         writer = csv.DictWriter(f, fieldnames=["filename", "x_min", "y_min", "x_max", "y_max"])
         writer.writeheader()
         writer.writerows(rows)
-    print(f"Saved {csv_out}")
+    print(f"✅ Saved normalized annotations to {csv_out}")
 
 def main():
     config = load_config()
-    convert_annotations(config["annotations_csv"], config["annotations_coco_csv"], config.get("dimension", 256))
+    convert_annotations(
+        config["annotations_csv"],
+        config["annotations_coco_csv"],
+        config.get("dimension", 256)
+    )
 
 if __name__ == "__main__":
     main()
