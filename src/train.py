@@ -5,8 +5,9 @@ from model import ModelFactory
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 from plots import plot_loss  
+from evaluate import evaluate_model  
 
-# Set up logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class Trainer:
         self.device = device
         self.loss_history = []
 
-    def train(self, dataloader, num_epochs, scheduler=None):
+    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir=""):
         logger.info("🚀 Starting training loop...")
         self.model.to(self.device)
         self.model.train()
@@ -25,7 +26,6 @@ class Trainer:
         for epoch in range(num_epochs):
             logger.info(f"🔁 Epoch {epoch+1}/{num_epochs}...")
             epoch_loss = 0.0
-            # Using tqdm for batch-level progress visualization
             for batch_idx, (images, targets) in enumerate(tqdm(dataloader, desc=f"Epoch {epoch+1}")):
                 images = [img.to(self.device) for img in images]
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
@@ -45,6 +45,12 @@ class Trainer:
             if scheduler is not None:
                 scheduler.step()
 
+            if eval_dataloader is not None:
+                self.model.eval()
+                _, mean_iou, accuracy = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=False)
+                logger.info(f"✅ Epoch {epoch+1} Evaluation: Mean IoU = {mean_iou:.4f}, Accuracy = {accuracy:.4f}")
+                self.model.train()
+
         return self.loss_history
 
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs,plots_file) -> torch.nn.Module:
@@ -60,12 +66,10 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         logger.info("❌ Model not found. Starting training...")
         model = ModelFactory.get_model(num_classes)
         optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
-        # Learning rate scheduler: decay LR by 0.1 every 10 epochs
         scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
         trainer = Trainer(model, optimizer, device)
         loss_history = trainer.train(train_dataloader, num_epochs, scheduler)
         
-        # Plot training loss
         plot_loss(loss_history, title="Training Loss", filename=plots_file)
         
         torch.save(model.state_dict(), model_file)

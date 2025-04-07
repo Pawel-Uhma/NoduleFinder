@@ -3,7 +3,11 @@ from train import load_or_train_model
 import evaluate
 from config_loader import load_config
 import torch
+import logging
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def main():
     cfg = load_config()
@@ -11,6 +15,7 @@ def main():
     images_dir = cfg["training_images_path"]
     model_file = cfg["model_file"]
     plots_file = cfg["plots_file"]
+    predictions_dir = cfg["predictions_dir"]
 
     img_dim = cfg.get("dimension", 256)
     batch_size = cfg.get("batch_size", 4)
@@ -20,7 +25,7 @@ def main():
     num_classes = cfg.get("num_classes", 2)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🖥️  Using device: {device}")
+    logger.info(f"🖥️  Using device: {device}")
 
     train_loader, test_loader = get_dataloaders(
         annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers
@@ -33,9 +38,9 @@ def main():
         device,
         num_epochs,
         plots_file)
-    print("✅ Training completed.")
+    logger.info("✅ Training completed.")
 
-    evaluate.evaluate_model(model, test_loader, device)
+    evaluate.evaluate_model(model, test_loader, device,predictions_dir)
 
 
 if __name__ == "__main__":

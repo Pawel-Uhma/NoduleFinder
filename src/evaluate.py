@@ -17,12 +17,13 @@ def compute_iou(box1, box2):
     unionArea = box1Area + box2Area - interArea
     return interArea / unionArea if unionArea > 0 else 0.0
 
-def evaluate_model(model, dataloader, device, save_predictions=True):
+def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True, iou_threshold=0.5):
     model.eval()
     ious = []
+    correct = 0
+    total = 0
     if save_predictions:
-        results_dir = "../predictions"
-        os.makedirs(results_dir, exist_ok=True)
+        os.makedirs(predictions_dir, exist_ok=True)
     with torch.no_grad():
         for batch_idx, (images, targets) in enumerate(dataloader):
             images = [img.to(device) for img in images]
@@ -38,8 +39,10 @@ def evaluate_model(model, dataloader, device, save_predictions=True):
                 else:
                     iou = 0.0
                     pred_box = None
-                global_idx = batch_idx * len(images) + i
-                print(f"Evaluated Image {global_idx}: IoU = {iou:.4f}")
+                total += 1
+                if iou >= iou_threshold:
+                    correct += 1
+                logger.info(f"Evaluated Image {batch_idx * len(images) + i}: IoU = {iou:.4f}")
                 ious.append(iou)
                 if save_predictions:
                     image_tensor = images[i].cpu()
@@ -48,12 +51,13 @@ def evaluate_model(model, dataloader, device, save_predictions=True):
                     if pred_box is not None:
                         draw.rectangle(pred_box.tolist(), outline="red", width=2)
                     draw.rectangle(gt_box.tolist(), outline="green", width=2)
-                    # Use original filename if available; otherwise default to a generated name.
-                    file_name = target.get("file_name", f"image_{global_idx}")
+                    file_name = target.get("file_name", f"image_{batch_idx * len(images) + i}")
                     file_base = os.path.splitext(file_name)[0]
-                    save_path = os.path.join(results_dir, f"{file_base}_iou_{iou:.4f}.jpg")
+                    save_path = os.path.join(predictions_dir, f"{file_base}_iou_{iou:.4f}.jpg")
                     image_pil.save(save_path)
-                    print(f"Saved evaluated image with boxes to {save_path}")
+                    logger.info(f"Saved evaluated image with boxes to {save_path}")
     mean_iou = np.mean(ious) if ious else 0.0
-    print(f"Mean IoU on test set: {mean_iou:.4f}")
-    return ious, mean_iou
+    accuracy = correct / total if total > 0 else 0.0
+    logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
+    logger.info(f"Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
+    return ious, mean_iou, accuracy
