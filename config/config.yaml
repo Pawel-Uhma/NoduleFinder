@@ -2,7 +2,7 @@ annotations_csv: "./data/annotations.csv"
 annotations_coco_csv: "./data/annotations_coco.csv"
 training_images_path: "./data/training_nodules"
 model_file: "./models/trained_model"
-plots_file: "./plots/plot.fig"
+plots_file: "./plots/plot.png"
 predictions_dir: "./data/predictions"
 
 dimension: 256
