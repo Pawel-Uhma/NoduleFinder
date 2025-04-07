@@ -9,13 +9,15 @@ from evaluate import evaluate_model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 class Trainer:
     def __init__(self, model, optimizer, device):
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.loss_history = []
+        self.map_history = []         # Added: to record mAP per epoch
+        self.accuracy_history = []    # Added: to record accuracy per epoch
+        self.mean_iou_history = []    # Added: to record mean IoU per epoch
 
     def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir=""):
         logger.info("🚀 Starting training loop...")
@@ -46,12 +48,16 @@ class Trainer:
 
             if eval_dataloader is not None:
                 self.model.eval()
-                _, mean_iou, accuracy = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=True)
-                logger.info(f"✅ Epoch {epoch+1} Evaluation: Mean IoU = {mean_iou:.4f}, Accuracy = {accuracy:.4f}")
+                # Evaluate and obtain mAP, accuracy, and mean IoU
+                _, mean_iou, accuracy, ap = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=True)
+                logger.info(f"✅ Epoch {epoch+1} Evaluation: Mean IoU = {mean_iou:.4f}, Accuracy = {accuracy:.4f}, mAP = {ap:.4f}")
+                self.mean_iou_history.append(mean_iou)
+                self.accuracy_history.append(accuracy)
+                self.map_history.append(ap)
                 self.model.train()
 
         return self.loss_history
-
+    
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_file) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
@@ -70,6 +76,7 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         trainer = Trainer(model, optimizer, device)
         loss_history = trainer.train(train_dataloader, num_epochs, scheduler)
         
+        from plots import plot_loss, plot_map_accuracy, plot_iou_trend
         plot_loss(loss_history, title="Training Loss", filename=plots_file)
         plot_map_accuracy(trainer.map_history, trainer.accuracy_history, filename="./plots/map_accuracy_plot.png")
         plot_iou_trend(trainer.mean_iou_history, filename="./plots/mean_iou_trend.png")
