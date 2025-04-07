@@ -43,13 +43,19 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def get_dataloaders(annotations_csv, images_dir, img_dim,
-                    batch_size, train_split, num_workers):
+def get_dataloaders(annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers):
     dataset = NoduleDataset(annotations_csv, images_dir, img_dim)
-    train_size = int(train_split * len(dataset))
-    test_size = len(dataset) - train_size
-    train_dataset, test_dataset = random_split(
-        dataset, [train_size, test_size])
+    total_size = len(dataset)
+    train_size = int(train_split * total_size)
+    test_size = total_size - train_size
+
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Total dataset size: {total_size} images")
+    logger.info(f"Training dataset size: {train_size} images")
+    logger.info(f"Test dataset size: {test_size} images")
+
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,

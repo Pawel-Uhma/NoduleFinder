@@ -30,6 +30,8 @@ def main():
     train_loader, test_loader = get_dataloaders(
         annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers
     )
+    logger.info(f"Train loader contains {len(train_loader.dataset)} images in {len(train_loader)} batches")
+    logger.info(f"Test loader contains {len(test_loader.dataset)} images in {len(test_loader)} batches")
 
     model = load_or_train_model(
         model_file,
@@ -40,8 +42,7 @@ def main():
         plots_file)
     logger.info("✅ Training completed.")
 
-    evaluate.evaluate_model(model, test_loader, device,predictions_dir)
-
+    evaluate.evaluate_model(model, test_loader, device, predictions_dir)
 
 if __name__ == "__main__":
     main()

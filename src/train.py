@@ -47,7 +47,7 @@ class Trainer:
 
             if eval_dataloader is not None:
                 self.model.eval()
-                _, mean_iou, accuracy = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=False)
+                _, mean_iou, accuracy = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=True)
                 logger.info(f"✅ Epoch {epoch+1} Evaluation: Mean IoU = {mean_iou:.4f}, Accuracy = {accuracy:.4f}")
                 self.model.train()
 
