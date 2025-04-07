@@ -3,7 +3,10 @@ import os
 import matplotlib.pyplot as plt
 from config_loader import load_config
 
-def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss", xlabel="Epoch", ylabel="Loss", filename="./plots/loss_plot.png"):
+def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss", xlabel="Epoch", ylabel="Loss", dir="./plots/"):
+    os.makedirs(dir, exist_ok=True)  
+    filename = os.path.join(dir, "loss.png")   
+
     plt.figure()
     plt.plot(training_loss, label="Training Loss", marker='o')
     if val_loss is not None:
@@ -20,7 +23,10 @@ def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss"
     print(f"✅ Plot saved to {filename}")
 
 
-def plot_map_accuracy(map_history, accuracy_history, title="Validation mAP and Accuracy", xlabel="Epoch", ylabel="Value", filename="./plots/map_accuracy_plot.png"):
+def plot_map_accuracy(map_history, accuracy_history, title="Validation mAP and Accuracy", xlabel="Epoch", ylabel="Value", dir="./plots/"):
+    os.makedirs(dir, exist_ok=True)  
+    filename = os.path.join(dir, "mAP.png")   
+    
     plt.figure()
     plt.plot(map_history, label="mAP", marker='o')
     plt.plot(accuracy_history, label="Accuracy", marker='o')
@@ -35,7 +41,10 @@ def plot_map_accuracy(map_history, accuracy_history, title="Validation mAP and A
     plt.close()
     print(f"✅ Plot saved to {filename}")
 
-def plot_iou_trend(mean_iou_history, title="Mean IoU Trend", xlabel="Epoch", ylabel="Mean IoU", filename="./plots/mean_iou_trend.png"):
+def plot_iou_trend(mean_iou_history, title="Mean IoU Trend", xlabel="Epoch", ylabel="Mean IoU", dir="./plots/"):
+    os.makedirs(dir, exist_ok=True)  
+    filename = os.path.join(dir, "IoU_hist.png")   
+    
     plt.figure()
     plt.plot(mean_iou_history, label="Mean IoU", marker='o')
     plt.title(title)

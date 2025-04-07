@@ -14,7 +14,7 @@ def main():
     annotations_csv = cfg["annotations_coco_csv"]
     images_dir = cfg["training_images_path"]
     model_file = cfg["model_file"]
-    plots_file = cfg["plots_file"]
+    plots_dir = cfg["plots_dir"]
     predictions_dir = cfg["predictions_dir"]
 
     seed = cfg.get("seed", 42)

@@ -58,7 +58,7 @@ class Trainer:
 
         return self.loss_history
     
-def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_file) -> torch.nn.Module:
+def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
@@ -76,10 +76,9 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         trainer = Trainer(model, optimizer, device)
         loss_history = trainer.train(train_dataloader, num_epochs, scheduler)
         
-        from plots import plot_loss, plot_map_accuracy, plot_iou_trend
-        plot_loss(loss_history, title="Training Loss", filename=plots_file)
-        plot_map_accuracy(trainer.map_history, trainer.accuracy_history, filename="./plots/map_accuracy_plot.png")
-        plot_iou_trend(trainer.mean_iou_history, filename="./plots/mean_iou_trend.png")
+        plot_loss(loss_history, title="Training Loss", dir=plots_dir)
+        plot_map_accuracy(trainer.map_history, trainer.accuracy_history, dir=plots_dir)
+        plot_iou_trend(trainer.mean_iou_history, dir=plots_dir)
         
         torch.save(model.state_dict(), model_file)
         logger.info(f"💾 Model trained and saved to: {model_file}")
