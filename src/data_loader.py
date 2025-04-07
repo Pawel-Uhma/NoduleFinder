@@ -43,7 +43,7 @@ def collate_fn(batch):
     return tuple(zip(*batch))
 
 
-def get_dataloaders(annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers):
+def get_dataloaders(annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers, seed):
     dataset = NoduleDataset(annotations_csv, images_dir, img_dim)
     total_size = len(dataset)
     train_size = int(train_split * total_size)
@@ -55,7 +55,9 @@ def get_dataloaders(annotations_csv, images_dir, img_dim, batch_size, train_spli
     logger.info(f"Training dataset size: {train_size} images")
     logger.info(f"Test dataset size: {test_size} images")
 
-    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+    generator = torch.Generator().manual_seed(seed)
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size], generator=generator)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,

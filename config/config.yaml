@@ -5,6 +5,7 @@ model_file: "./models/trained_model"
 plots_file: "./plots/plot.png"
 predictions_dir: "./data/predictions"
 
+seed: 42
 dimension: 256
 batch_size: 1
 num_workers: 4

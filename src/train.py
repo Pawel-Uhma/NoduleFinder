@@ -61,7 +61,7 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         logger.info("📦 Model file found. Loading saved model...")
         model = ModelFactory.get_model(num_classes)
         model.load_state_dict(torch.load(model_file))
-        model.to(device)  # Added: ensure model is on the correct device
+        model.to(device)  
         logger.info("✅ Model loaded from disk and moved to device")
     else:
         logger.info("❌ Model not found. Starting training...")

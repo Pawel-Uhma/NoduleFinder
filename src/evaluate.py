@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, torch, numpy as np, logging
+import os, torch, numpy as np, logging, shutil
 from PIL import Image, ImageDraw
 from torchvision.transforms.functional import to_pil_image
 
@@ -76,7 +76,9 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
     correct = 0
     total = 0
     if save_predictions:
-        os.makedirs(predictions_dir, exist_ok=True)
+        if os.path.exists(predictions_dir):
+            shutil.rmtree(predictions_dir)
+        os.makedirs(predictions_dir)
     with torch.no_grad():
         for batch_idx, (images, targets) in enumerate(dataloader):
             images = [img.to(device) for img in images]

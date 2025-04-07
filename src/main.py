@@ -17,6 +17,7 @@ def main():
     plots_file = cfg["plots_file"]
     predictions_dir = cfg["predictions_dir"]
 
+    seed = cfg.get("seed", 42)
     img_dim = cfg.get("dimension", 256)
     batch_size = cfg.get("batch_size", 4)
     train_split = cfg.get("train_split", 0.8)
@@ -28,7 +29,7 @@ def main():
     logger.info(f"🖥️  Using device: {device}")
 
     train_loader, test_loader = get_dataloaders(
-        annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers
+        annotations_csv, images_dir, img_dim, batch_size, train_split, num_workers, seed
     )
     logger.info(f"Train loader contains {len(train_loader.dataset)} images in {len(train_loader)} batches")
     logger.info(f"Test loader contains {len(test_loader.dataset)} images in {len(test_loader)} batches")
