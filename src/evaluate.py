@@ -68,7 +68,10 @@ def compute_map(model, dataloader, device, iou_threshold=0.5, confidence_thresho
 def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True, iou_threshold=0.5, confidence_threshold=0.5):
     model.eval()
     ious = []
-    correct = 0
+    TP_count = 0
+    FP_count = 0
+    FN_count = 0
+    TN_count = 0 
     total = 0
     if save_predictions:
         if os.path.exists(predictions_dir):
@@ -86,18 +89,22 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     boxes = pred["boxes"].cpu().numpy()
                     best_idx = scores.argmax()
                     best_score = scores[best_idx]
-                    # Apply confidence threshold: if below, treat as no valid detection
                     if best_score < confidence_threshold:
+                        FN_count += 1
                         iou = 0.0
                         pred_box = None
                     else:
                         pred_box = boxes[best_idx]
                         iou = compute_iou(gt_box, pred_box)
+                        if iou >= iou_threshold:
+                            TP_count += 1
+                        else:
+                            FP_count += 1
+                            FN_count += 1
                 else:
+                    FN_count += 1
                     iou = 0.0
                     pred_box = None
-                if iou >= iou_threshold:
-                    correct += 1
                 logger.info(f"Evaluated Image {batch_idx * len(images) + i}: IoU = {iou:.4f}")
                 ious.append(iou)
                 if save_predictions:
@@ -113,9 +120,10 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     image_pil.save(save_path)
                     logger.info(f"Saved evaluated image with boxes to {save_path}")
     mean_iou = np.mean(ious) if ious else 0.0
-    accuracy = correct / total if total > 0 else 0.0
+    accuracy = TP_count / total if total > 0 else 0.0
     ap = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
     logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
     logger.info(f"Detection Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
     logger.info(f"mAP on test set (IoU threshold {iou_threshold} & confidence threshold {confidence_threshold}): {ap:.4f}")
+    logger.info(f"TP: {TP_count}, FP: {FP_count}, FN: {FN_count}, TN: {TN_count}")
     return ious, mean_iou, accuracy, ap
