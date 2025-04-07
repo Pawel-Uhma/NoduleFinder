@@ -7,7 +7,6 @@ from tqdm import tqdm
 from plots import plot_loss  
 from evaluate import evaluate_model  
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

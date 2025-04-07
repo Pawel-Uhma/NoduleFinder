@@ -17,41 +17,37 @@ def compute_iou(box1, box2):
     unionArea = box1Area + box2Area - interArea
     return interArea / unionArea if unionArea > 0 else 0.0
 
-def compute_map(model, dataloader, device, iou_threshold=0.5):
+def compute_map(model, dataloader, device, iou_threshold=0.5, confidence_threshold=0.5):
     model.eval()
-    all_detections = []
+    detections = []  
     total_gts = 0
     with torch.no_grad():
         for images, targets in dataloader:
             images = [img.to(device) for img in images]
             predictions = model(images)
             for pred, target in zip(predictions, targets):
-                gt_boxes = target["boxes"].cpu().numpy()
-                total_gts += len(gt_boxes)
-                pred_boxes = pred["boxes"].cpu().numpy()
-                scores = pred["scores"].cpu().numpy()
-                if len(pred_boxes) == 0:
-                    continue
-                order = scores.argsort()[::-1]
-                pred_boxes = pred_boxes[order]
-                scores = scores[order]
-                detected = [False] * len(gt_boxes)
-                for score, box in zip(scores, pred_boxes):
-                    match_found = False
-                    for idx, gt_box in enumerate(gt_boxes):
-                        iou = compute_iou(gt_box, box)
-                        if iou >= iou_threshold and not detected[idx]:
-                            match_found = True
-                            detected[idx] = True
-                            break
-                    is_tp = 1 if match_found else 0
-                    all_detections.append({'score': score, 'is_tp': is_tp})
-    all_detections = sorted(all_detections, key=lambda x: x['score'], reverse=True)
+                total_gts += 1 
+                gt_box = target["boxes"][0].cpu().numpy()
+                if len(pred["boxes"]) > 0:
+                    scores = pred["scores"].cpu().numpy()
+                    boxes = pred["boxes"].cpu().numpy()
+                    best_idx = scores.argmax()
+                    best_score = scores[best_idx]
+                    if best_score < confidence_threshold:
+                        detections.append({'score': best_score, 'is_tp': 0})
+                    else:
+                        pred_box = boxes[best_idx]
+                        iou = compute_iou(gt_box, pred_box)
+                        is_tp = 1 if iou >= iou_threshold else 0
+                        detections.append({'score': best_score, 'is_tp': is_tp})
+                else:
+                    detections.append({'score': 0.0, 'is_tp': 0})
+    detections = sorted(detections, key=lambda x: x['score'], reverse=True)
     cum_tp = 0
     cum_fp = 0
     precisions = []
     recalls = []
-    for det in all_detections:
+    for det in detections:
         if det['is_tp']:
             cum_tp += 1
         else:
@@ -60,7 +56,6 @@ def compute_map(model, dataloader, device, iou_threshold=0.5):
         recall = cum_tp / total_gts if total_gts > 0 else 0.0
         precisions.append(precision)
         recalls.append(recall)
-    # Interpolate precision-recall curve
     mrec = [0.0] + recalls + [1.0]
     mpre = [0.0] + precisions + [0.0]
     for i in range(len(mpre) - 2, -1, -1):
@@ -70,7 +65,7 @@ def compute_map(model, dataloader, device, iou_threshold=0.5):
         ap += (mrec[i] - mrec[i - 1]) * mpre[i]
     return ap
 
-def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True, iou_threshold=0.5):
+def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True, iou_threshold=0.5, confidence_threshold=0.5):
     model.eval()
     ious = []
     correct = 0
@@ -84,17 +79,23 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
             images = [img.to(device) for img in images]
             predictions = model(images)
             for i, (pred, target) in enumerate(zip(predictions, targets)):
+                total += 1
                 gt_box = target["boxes"][0].cpu().numpy()
                 if len(pred["boxes"]) > 0:
                     scores = pred["scores"].cpu().numpy()
                     boxes = pred["boxes"].cpu().numpy()
                     best_idx = scores.argmax()
-                    pred_box = boxes[best_idx]
-                    iou = compute_iou(gt_box, pred_box)
+                    best_score = scores[best_idx]
+                    # Apply confidence threshold: if below, treat as no valid detection
+                    if best_score < confidence_threshold:
+                        iou = 0.0
+                        pred_box = None
+                    else:
+                        pred_box = boxes[best_idx]
+                        iou = compute_iou(gt_box, pred_box)
                 else:
                     iou = 0.0
                     pred_box = None
-                total += 1
                 if iou >= iou_threshold:
                     correct += 1
                 logger.info(f"Evaluated Image {batch_idx * len(images) + i}: IoU = {iou:.4f}")
@@ -113,9 +114,8 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     logger.info(f"Saved evaluated image with boxes to {save_path}")
     mean_iou = np.mean(ious) if ious else 0.0
     accuracy = correct / total if total > 0 else 0.0
-    ap = compute_map(model, dataloader, device, iou_threshold)
+    ap = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
     logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
-    logger.info(f"Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
-    logger.info(f"mAP on test set (IoU threshold {iou_threshold}): {ap:.4f}")
+    logger.info(f"Detection Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
+    logger.info(f"mAP on test set (IoU threshold {iou_threshold} & confidence threshold {confidence_threshold}): {ap:.4f}")
     return ious, mean_iou, accuracy, ap
-
