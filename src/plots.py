@@ -14,6 +14,7 @@ def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss"
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
     plt.savefig(filename)
     plt.close()
     print(f"✅ Plot saved to {filename}")
