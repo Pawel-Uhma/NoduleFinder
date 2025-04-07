@@ -53,7 +53,7 @@ class Trainer:
 
         return self.loss_history
 
-def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs,plots_file) -> torch.nn.Module:
+def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_file) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
@@ -61,7 +61,8 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         logger.info("📦 Model file found. Loading saved model...")
         model = ModelFactory.get_model(num_classes)
         model.load_state_dict(torch.load(model_file))
-        logger.info("✅ Model loaded from disk")
+        model.to(device)  # Added: ensure model is on the correct device
+        logger.info("✅ Model loaded from disk and moved to device")
     else:
         logger.info("❌ Model not found. Starting training...")
         model = ModelFactory.get_model(num_classes)
