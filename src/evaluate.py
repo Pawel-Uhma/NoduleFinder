@@ -17,6 +17,59 @@ def compute_iou(box1, box2):
     unionArea = box1Area + box2Area - interArea
     return interArea / unionArea if unionArea > 0 else 0.0
 
+def compute_map(model, dataloader, device, iou_threshold=0.5):
+    model.eval()
+    all_detections = []
+    total_gts = 0
+    with torch.no_grad():
+        for images, targets in dataloader:
+            images = [img.to(device) for img in images]
+            predictions = model(images)
+            for pred, target in zip(predictions, targets):
+                gt_boxes = target["boxes"].cpu().numpy()
+                total_gts += len(gt_boxes)
+                pred_boxes = pred["boxes"].cpu().numpy()
+                scores = pred["scores"].cpu().numpy()
+                if len(pred_boxes) == 0:
+                    continue
+                order = scores.argsort()[::-1]
+                pred_boxes = pred_boxes[order]
+                scores = scores[order]
+                detected = [False] * len(gt_boxes)
+                for score, box in zip(scores, pred_boxes):
+                    match_found = False
+                    for idx, gt_box in enumerate(gt_boxes):
+                        iou = compute_iou(gt_box, box)
+                        if iou >= iou_threshold and not detected[idx]:
+                            match_found = True
+                            detected[idx] = True
+                            break
+                    is_tp = 1 if match_found else 0
+                    all_detections.append({'score': score, 'is_tp': is_tp})
+    all_detections = sorted(all_detections, key=lambda x: x['score'], reverse=True)
+    cum_tp = 0
+    cum_fp = 0
+    precisions = []
+    recalls = []
+    for det in all_detections:
+        if det['is_tp']:
+            cum_tp += 1
+        else:
+            cum_fp += 1
+        precision = cum_tp / (cum_tp + cum_fp)
+        recall = cum_tp / total_gts if total_gts > 0 else 0.0
+        precisions.append(precision)
+        recalls.append(recall)
+    # Interpolate precision-recall curve
+    mrec = [0.0] + recalls + [1.0]
+    mpre = [0.0] + precisions + [0.0]
+    for i in range(len(mpre) - 2, -1, -1):
+        mpre[i] = max(mpre[i], mpre[i + 1])
+    ap = 0.0
+    for i in range(1, len(mrec)):
+        ap += (mrec[i] - mrec[i - 1]) * mpre[i]
+    return ap
+
 def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True, iou_threshold=0.5):
     model.eval()
     ious = []
@@ -58,6 +111,9 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     logger.info(f"Saved evaluated image with boxes to {save_path}")
     mean_iou = np.mean(ious) if ious else 0.0
     accuracy = correct / total if total > 0 else 0.0
+    ap = compute_map(model, dataloader, device, iou_threshold)
     logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
     logger.info(f"Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
-    return ious, mean_iou, accuracy
+    logger.info(f"mAP on test set (IoU threshold {iou_threshold}): {ap:.4f}")
+    return ious, mean_iou, accuracy, ap
+
