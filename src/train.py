@@ -4,7 +4,7 @@ import logging
 from model import ModelFactory
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
-from plots import plot_loss  
+from plots import plot_loss, plot_map_accuracy, plot_iou_trend
 from evaluate import evaluate_model  
 
 logging.basicConfig(level=logging.INFO)
@@ -71,6 +71,8 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         loss_history = trainer.train(train_dataloader, num_epochs, scheduler)
         
         plot_loss(loss_history, title="Training Loss", filename=plots_file)
+        plot_map_accuracy(trainer.map_history, trainer.accuracy_history, filename="./plots/map_accuracy_plot.png")
+        plot_iou_trend(trainer.mean_iou_history, filename="./plots/mean_iou_trend.png")
         
         torch.save(model.state_dict(), model_file)
         logger.info(f"💾 Model trained and saved to: {model_file}")
