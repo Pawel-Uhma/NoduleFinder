@@ -43,12 +43,19 @@ class ModelFactory:
         return model
 
 
-# Wrapper to adapt YOLO v8 outputs to the expected format
 class YOLOv8ModelWrapper(torch.nn.Module):
     def __init__(self, yolo_model, num_classes):
         super().__init__()
         self.model = yolo_model
         self.num_classes = num_classes
+
+    # Override train() so it does not invoke ultralytics' internal trainer code.
+    def train(self, mode=True):
+        self.training = mode
+        # Optionally, if your model's inner module should also know about the mode change,
+        # you can set its attribute (but do not call its train() method directly).
+        self.model._in_training = mode
+        return self
 
     def forward(self, images, **kwargs):
         outputs = []
@@ -63,7 +70,11 @@ class YOLOv8ModelWrapper(torch.nn.Module):
             result = self.model(np_img, augment=False)[0]
             # Convert YOLO predictions to dict format: boxes, scores, labels
             if len(result.boxes) == 0:
-                prediction = {"boxes": torch.empty((0, 4)), "scores": torch.tensor([]), "labels": torch.tensor([])}
+                prediction = {
+                    "boxes": torch.empty((0, 4)),
+                    "scores": torch.tensor([]),
+                    "labels": torch.tensor([])
+                }
             else:
                 boxes = torch.tensor(result.boxes.xyxy.cpu().numpy())
                 scores = torch.tensor(result.boxes.conf.cpu().numpy())
