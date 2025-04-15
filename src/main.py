@@ -1,10 +1,9 @@
 from data_loader import get_dataloaders
-from train import load_or_train_model
+from train import load_or_train_model, load_or_train_yolo_model
 import evaluate
 from config_loader import load_config
 import torch
 import logging
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,6 +15,11 @@ def main():
     model_file = cfg["model_file"]
     plots_dir = cfg["plots_dir"]
     predictions_dir = cfg["predictions_dir"]
+
+    # New YOLO-specific configuration
+    yolo_model_file = cfg["yolo_model_file"]
+    yolo_predictions_dir = cfg["yolo_predictions_dir"]
+    yolo_plots_dir = cfg["yolo_plots_dir"]
 
     seed = cfg.get("seed", 42)
     img_dim = cfg.get("dimension", 256)
@@ -34,16 +38,29 @@ def main():
     logger.info(f"Train loader contains {len(train_loader.dataset)} images in {len(train_loader)} batches")
     logger.info(f"Test loader contains {len(test_loader.dataset)} images in {len(test_loader)} batches")
 
+    # Load or train Faster R-CNN model
     model = load_or_train_model(
         model_file,
         num_classes,
         train_loader,
         device,
         num_epochs,
-        plots_dir)
-    logger.info("✅ Training completed.")
-
+        plots_dir
+    )
+    logger.info("✅ Faster R-CNN Training completed.")
     evaluate.evaluate_model(model, test_loader, device, predictions_dir)
+
+    # Load or train YOLO v8 model
+    yolo_model = load_or_train_yolo_model(
+        yolo_model_file,
+        num_classes,
+        train_loader,
+        device,
+        num_epochs,
+        yolo_plots_dir
+    )
+    logger.info("✅ YOLO v8 Training completed.")
+    evaluate.evaluate_model(yolo_model, test_loader, device, yolo_predictions_dir)
 
 if __name__ == "__main__":
     main()

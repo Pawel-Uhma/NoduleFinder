@@ -9,15 +9,16 @@ from evaluate import evaluate_model
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 class Trainer:
     def __init__(self, model, optimizer, device):
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.loss_history = []
-        self.map_history = []         # Added: to record mAP per epoch
-        self.accuracy_history = []    # Added: to record accuracy per epoch
-        self.mean_iou_history = []    # Added: to record mean IoU per epoch
+        self.map_history = []         # Record mAP per epoch
+        self.accuracy_history = []    # Record accuracy per epoch
+        self.mean_iou_history = []    # Record mean IoU per epoch
 
     def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir=""):
         logger.info("🚀 Starting training loop...")
@@ -48,7 +49,7 @@ class Trainer:
 
             if eval_dataloader is not None:
                 self.model.eval()
-                # Evaluate and obtain mAP, accuracy, and mean IoU
+                # Evaluate and record metrics
                 _, mean_iou, accuracy, ap = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=True)
                 logger.info(f"✅ Epoch {epoch+1} Evaluation: Mean IoU = {mean_iou:.4f}, Accuracy = {accuracy:.4f}, mAP = {ap:.4f}")
                 self.mean_iou_history.append(mean_iou)
@@ -57,7 +58,7 @@ class Trainer:
                 self.model.train()
 
         return self.loss_history
-    
+
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
@@ -74,7 +75,7 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
         scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
         trainer = Trainer(model, optimizer, device)
-        loss_history = trainer.train(train_dataloader, num_epochs, scheduler)
+        loss_history = trainer.train(train_dataloader, num_epochs, scheduler, eval_dataloader=train_dataloader, predictions_dir=plots_dir)
         
         plot_loss(loss_history, title="Training Loss", dir=plots_dir)
         plot_map_accuracy(trainer.map_history, trainer.accuracy_history, dir=plots_dir)
@@ -84,4 +85,27 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
         logger.info(f"💾 Model trained and saved to: {model_file}")
 
     logger.info("✅ Model ready to use")
+    return model
+
+# New function to load or train the YOLO v8 model
+def load_or_train_yolo_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
+    logger.info(f"📂 Checking for YOLO model at: {model_file}")
+    os.makedirs(os.path.dirname(model_file), exist_ok=True)
+    
+    if os.path.exists(model_file):
+        logger.info("📦 YOLO model file found. Loading saved YOLO model...")
+        model = ModelFactory.get_yolo_model(num_classes, model_file)
+        model.to(device)
+        logger.info("✅ YOLO model loaded from disk and moved to device")
+    else:
+        logger.info("❌ YOLO model not found. Starting training for YOLO model...")
+        model = ModelFactory.get_yolo_model(num_classes)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
+        scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+        trainer = Trainer(model, optimizer, device)
+        loss_history = trainer.train(train_dataloader, num_epochs, scheduler, eval_dataloader=train_dataloader, predictions_dir=plots_dir)
+        plot_loss(loss_history, title="YOLO Training Loss", dir=plots_dir)
+        torch.save(model.state_dict(), model_file)
+        logger.info(f"💾 YOLO model trained and saved to: {model_file}")
+    logger.info("✅ YOLO model ready to use")
     return model
