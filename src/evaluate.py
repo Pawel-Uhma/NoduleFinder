@@ -71,7 +71,7 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
     TP_count = 0
     FP_count = 0
     FN_count = 0
-    TN_count = 0 
+    TN_count = 0  # Note: TNs are not really computed in this object-detection task
     total = 0
     if save_predictions:
         if os.path.exists(predictions_dir):
@@ -90,6 +90,7 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     best_idx = scores.argmax()
                     best_score = scores[best_idx]
                     if best_score < confidence_threshold:
+                        # Consider this a false negative if confidence is too low
                         FN_count += 1
                         iou = 0.0
                         pred_box = None
@@ -122,8 +123,19 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
     mean_iou = np.mean(ious) if ious else 0.0
     accuracy = TP_count / total if total > 0 else 0.0
     ap = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
+
+    # Additional metrics: precision, recall, and F1 score:
+    precision = TP_count / (TP_count + FP_count) if (TP_count + FP_count) > 0 else 0.0
+    recall_metric = TP_count / (TP_count + FN_count) if (TP_count + FN_count) > 0 else 0.0
+    f1_score = 2 * precision * recall_metric / (precision + recall_metric) if (precision + recall_metric) > 0 else 0.0
+
     logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
     logger.info(f"Detection Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
     logger.info(f"mAP on test set (IoU threshold {iou_threshold} & confidence threshold {confidence_threshold}): {ap:.4f}")
     logger.info(f"TP: {TP_count}, FP: {FP_count}, FN: {FN_count}, TN: {TN_count}")
-    return ious, mean_iou, accuracy, ap
+    logger.info(f"Precision: {precision:.4f}")
+    logger.info(f"Recall: {recall_metric:.4f}")
+    logger.info(f"F1 Score: {f1_score:.4f}")
+
+    return ious, mean_iou, accuracy, ap, precision, recall_metric, f1_score
+
