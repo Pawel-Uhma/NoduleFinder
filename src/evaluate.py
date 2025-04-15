@@ -64,19 +64,21 @@ def compute_map(model, dataloader, device, iou_threshold=0.5, confidence_thresho
     for i in range(1, len(mrec)):
         ap += (mrec[i] - mrec[i - 1]) * mpre[i]
     return ap
-
-def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True, iou_threshold=0.5, confidence_threshold=0.5):
+def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True,
+                   iou_threshold=0.5, confidence_threshold=0.5, verbose=True):
     model.eval()
     ious = []
     TP_count = 0
     FP_count = 0
     FN_count = 0
-    TN_count = 0  # Note: TNs are not really computed in this object-detection task
+    TN_count = 0  # TNs are not really computed in this object-detection task
     total = 0
-    if save_predictions:
+
+    if verbose and save_predictions:
         if os.path.exists(predictions_dir):
             shutil.rmtree(predictions_dir)
         os.makedirs(predictions_dir)
+
     with torch.no_grad():
         for batch_idx, (images, targets) in enumerate(dataloader):
             images = [img.to(device) for img in images]
@@ -90,8 +92,7 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     best_idx = scores.argmax()
                     best_score = scores[best_idx]
                     if best_score < confidence_threshold:
-                        # Consider this a false negative if confidence is too low
-                        FN_count += 1
+                        FN_count += 1  # Consider this a false negative
                         iou = 0.0
                         pred_box = None
                     else:
@@ -106,9 +107,12 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     FN_count += 1
                     iou = 0.0
                     pred_box = None
-                logger.info(f"Evaluated Image {batch_idx * len(images) + i}: IoU = {iou:.4f}")
+
+                if verbose:
+                    logger.info(f"Evaluated Image {batch_idx * len(images) + i}: IoU = {iou:.4f}")
                 ious.append(iou)
-                if save_predictions:
+
+                if verbose and save_predictions:
                     image_tensor = images[i].cpu()
                     image_pil = to_pil_image(image_tensor)
                     draw = ImageDraw.Draw(image_pil)
@@ -120,6 +124,7 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
                     save_path = os.path.join(predictions_dir, f"{file_base}_iou_{iou:.4f}.jpg")
                     image_pil.save(save_path)
                     logger.info(f"Saved evaluated image with boxes to {save_path}")
+
     mean_iou = np.mean(ious) if ious else 0.0
     accuracy = TP_count / total if total > 0 else 0.0
     ap = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
@@ -129,13 +134,13 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
     recall_metric = TP_count / (TP_count + FN_count) if (TP_count + FN_count) > 0 else 0.0
     f1_score = 2 * precision * recall_metric / (precision + recall_metric) if (precision + recall_metric) > 0 else 0.0
 
-    logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
-    logger.info(f"Detection Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
-    logger.info(f"mAP on test set (IoU threshold {iou_threshold} & confidence threshold {confidence_threshold}): {ap:.4f}")
-    logger.info(f"TP: {TP_count}, FP: {FP_count}, FN: {FN_count}, TN: {TN_count}")
-    logger.info(f"Precision: {precision:.4f}")
-    logger.info(f"Recall: {recall_metric:.4f}")
-    logger.info(f"F1 Score: {f1_score:.4f}")
+    if verbose:
+        logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
+        logger.info(f"Detection Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
+        logger.info(f"mAP on test set (IoU threshold {iou_threshold} & confidence threshold {confidence_threshold}): {ap:.4f}")
+        logger.info(f"TP: {TP_count}, FP: {FP_count}, FN: {FN_count}, TN: {TN_count}")
+        logger.info(f"Precision: {precision:.4f}")
+        logger.info(f"Recall: {recall_metric:.4f}")
+        logger.info(f"F1 Score: {f1_score:.4f}")
 
     return ious, mean_iou, accuracy, ap, precision, recall_metric, f1_score
-

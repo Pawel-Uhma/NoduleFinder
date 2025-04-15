@@ -47,15 +47,21 @@ class Trainer:
             if scheduler is not None:
                 scheduler.step()
 
-            if eval_dataloader is not None:
-                self.model.eval()
-                # Evaluate and record metrics
-                _, mean_iou, accuracy, ap = evaluate_model(self.model, eval_dataloader, self.device, predictions_dir, save_predictions=True)
-                logger.info(f"✅ Epoch {epoch+1} Evaluation: Mean IoU = {mean_iou:.4f}, Accuracy = {accuracy:.4f}, mAP = {ap:.4f}")
-                self.mean_iou_history.append(mean_iou)
-                self.accuracy_history.append(accuracy)
-                self.map_history.append(ap)
-                self.model.train()
+        if eval_dataloader is not None:
+            self.model.eval()
+          
+            ious, mean_iou, accuracy, ap, precision, recall_metric, f1_score = evaluate_model(
+                self.model,
+                eval_dataloader,
+                self.device,
+                predictions_dir,
+                save_predictions=False,  
+                verbose=False           
+            )
+            self.mean_iou_history.append(mean_iou)
+            self.accuracy_history.append(accuracy)
+            self.map_history.append(ap)
+            self.model.train()
 
         return self.loss_history
 

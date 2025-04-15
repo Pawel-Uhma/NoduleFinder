@@ -1,4 +1,4 @@
-src/__pycache__/
 data/predictions
 models
 *.pyc
+__pycache__/
