@@ -40,7 +40,7 @@ def main():
         train_loader,
         device,
         num_epochs,
-        plots_file)
+        plots_dir)
     logger.info("✅ Training completed.")
 
     evaluate.evaluate_model(model, test_loader, device, predictions_dir)
