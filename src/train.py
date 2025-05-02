@@ -55,7 +55,7 @@ class Trainer:
                 self.device,
                 predictions_dir,
                 save_predictions=False,
-                plots_dir="./plots"
+                plots_dir="./plots",
                 verbose=False
             )
             self.mean_iou_history.append(mean_iou)
