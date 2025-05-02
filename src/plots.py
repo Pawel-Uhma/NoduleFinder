@@ -58,3 +58,49 @@ def plot_iou_trend(mean_iou_history, title="Mean IoU Trend", xlabel="Epoch", yla
     plt.close()
     print(f"✅ Plot saved to {filename}")
 
+
+def plot_precision_recall_curve(precision, recall, dir, filename="pr_curve.png"):
+    os.makedirs(dir, exist_ok=True)
+    plt.figure()
+    plt.plot(recall, precision)
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision-Recall Curve")
+    plt.grid(True)
+    plt.tight_layout()
+    path = os.path.join(dir, filename)
+    plt.savefig(path)
+    plt.close()
+    print(f"✅ PR curve saved to {path}")
+
+
+def plot_f1_curve(f1, thresholds, dir, filename="f1_curve.png"):
+    os.makedirs(dir, exist_ok=True)
+    plt.figure()
+    plt.plot(thresholds, f1[:-1])  # last F1 corresponds to threshold beyond max
+    plt.xlabel("Confidence Threshold")
+    plt.ylabel("F1 Score")
+    plt.title("F1 vs Confidence Threshold")
+    plt.grid(True)
+    plt.tight_layout()
+    path = os.path.join(dir, filename)
+    plt.savefig(path)
+    plt.close()
+    print(f"✅ F1 curve saved to {path}")
+
+
+def plot_roc_curve(fpr, tpr, roc_auc, dir, filename="roc_curve.png"):
+    os.makedirs(dir, exist_ok=True)
+    plt.figure()
+    plt.plot(fpr, tpr, label=f"ROC curve (AUC = {roc_auc:.3f})")
+    plt.plot([0,1], [0,1], linestyle='--')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curve")
+    plt.legend(loc="lower right")
+    plt.grid(True)
+    plt.tight_layout()
+    path = os.path.join(dir, filename)
+    plt.savefig(path)
+    plt.close()
+    print(f"✅ ROC curve saved to {path}")

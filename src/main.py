@@ -43,7 +43,7 @@ def main():
         plots_dir
     )
     logger.info("✅ Faster R-CNN Training completed.")
-    evaluate.evaluate_model(model, test_loader, device, predictions_dir)
+    evaluate.evaluate_model(model, test_loader, device, predictions_dir, plots_dir)
 
 if __name__ == "__main__":
     main()

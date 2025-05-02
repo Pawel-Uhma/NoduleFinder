@@ -2,9 +2,12 @@
 import os, torch, numpy as np, logging, shutil
 from PIL import Image, ImageDraw
 from torchvision.transforms.functional import to_pil_image
+from sklearn.metrics import precision_recall_curve, roc_curve, auc
+from plots import *
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def compute_iou(box1, box2):
     xA = max(box1[0], box2[0])
@@ -64,15 +67,58 @@ def compute_map(model, dataloader, device, iou_threshold=0.5, confidence_thresho
     for i in range(1, len(mrec)):
         ap += (mrec[i] - mrec[i - 1]) * mpre[i]
     return ap
-def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=True,
+def get_all_detections(model, dataloader, device, iou_threshold=0.5):
+    model.eval()
+    detections = []
+    with torch.no_grad():
+        for images, targets in dataloader:
+            images = [img.to(device) for img in images]
+            preds = model(images)
+            for pred, target in zip(preds, targets):
+                gt_box = target['boxes'][0].cpu().numpy()
+                scores = pred['scores'].cpu().numpy() if len(pred['scores'])>0 else np.array([])
+                boxes = pred['boxes'].cpu().numpy() if len(pred['boxes'])>0 else np.empty((0,4))
+                for score, box in zip(scores, boxes):
+                    iou = compute_iou(gt_box, box)
+                    is_tp = 1 if iou >= iou_threshold else 0
+                    detections.append({'score': float(score), 'is_tp': is_tp})
+    return detections
+
+
+def compute_coco_map(model, dataloader, device, iou_min=0.5, iou_max=0.95, iou_step=0.05, conf_thres=0.0):
+    thresholds = np.arange(iou_min, iou_max + 1e-9, iou_step)
+    aps = []
+    for t in thresholds:
+        ap = compute_map(model, dataloader, device, iou_threshold=t, confidence_threshold=conf_thres)
+        aps.append(ap)
+    mAP = float(np.mean(aps))
+    return mAP, dict(zip(thresholds, aps))
+
+
+def compute_pr_roc(detections):
+    y_scores = np.array([d['score'] for d in detections])
+    y_true = np.array([d['is_tp'] for d in detections])
+    precision, recall, pr_thresholds = precision_recall_curve(y_true, y_scores)
+    f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+    fpr, tpr, roc_thresholds = roc_curve(y_true, y_scores)
+    roc_auc = float(auc(fpr, tpr))
+    return {
+        'precision': precision,
+        'recall': recall,
+        'pr_thresholds': pr_thresholds,
+        'f1': f1,
+        'fpr': fpr,
+        'tpr': tpr,
+        'roc_auc': roc_auc
+    }
+
+
+def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_predictions=True,
                    iou_threshold=0.5, confidence_threshold=0.5, verbose=True):
+    # Existing detection evaluation (IoU, TP/FP/FN counts etc.)
     model.eval()
     ious = []
-    TP_count = 0
-    FP_count = 0
-    FN_count = 0
-    TN_count = 0  # TNs are not really computed in this object-detection task
-    total = 0
+    TP_count = FP_count = FN_count = TN_count = total = 0
 
     if verbose and save_predictions:
         if os.path.exists(predictions_dir):
@@ -85,62 +131,76 @@ def evaluate_model(model, dataloader, device, predictions_dir, save_predictions=
             predictions = model(images)
             for i, (pred, target) in enumerate(zip(predictions, targets)):
                 total += 1
-                gt_box = target["boxes"][0].cpu().numpy()
-                if len(pred["boxes"]) > 0:
-                    scores = pred["scores"].cpu().numpy()
-                    boxes = pred["boxes"].cpu().numpy()
+                gt_box = target['boxes'][0].cpu().numpy()
+                if len(pred['boxes']) > 0:
+                    scores = pred['scores'].cpu().numpy()
+                    boxes = pred['boxes'].cpu().numpy()
                     best_idx = scores.argmax()
-                    best_score = scores[best_idx]
+                    best_score = float(scores[best_idx])
                     if best_score < confidence_threshold:
-                        FN_count += 1  # Consider this a false negative
-                        iou = 0.0
+                        FN_count += 1
+                        iou_val = 0.0
                         pred_box = None
                     else:
                         pred_box = boxes[best_idx]
-                        iou = compute_iou(gt_box, pred_box)
-                        if iou >= iou_threshold:
+                        iou_val = compute_iou(gt_box, pred_box)
+                        if iou_val >= iou_threshold:
                             TP_count += 1
                         else:
                             FP_count += 1
                             FN_count += 1
                 else:
                     FN_count += 1
-                    iou = 0.0
+                    iou_val = 0.0
                     pred_box = None
 
-                if verbose:
-                    logger.info(f"Evaluated Image {batch_idx * len(images) + i}: IoU = {iou:.4f}")
-                ious.append(iou)
-
+                ious.append(iou_val)
                 if verbose and save_predictions:
-                    image_tensor = images[i].cpu()
-                    image_pil = to_pil_image(image_tensor)
-                    draw = ImageDraw.Draw(image_pil)
+                    img_pil = to_pil_image(images[i].cpu())
+                    draw = ImageDraw.Draw(img_pil)
                     if pred_box is not None:
-                        draw.rectangle(pred_box.tolist(), outline="red", width=2)
-                    draw.rectangle(gt_box.tolist(), outline="green", width=2)
-                    file_name = target.get("file_name", f"image_{batch_idx * len(images) + i}")
-                    file_base = os.path.splitext(file_name)[0]
-                    save_path = os.path.join(predictions_dir, f"{file_base}_iou_{iou:.4f}.jpg")
-                    image_pil.save(save_path)
-                    logger.info(f"Saved evaluated image with boxes to {save_path}")
+                        draw.rectangle(pred_box.tolist(), outline='red', width=2)
+                    draw.rectangle(gt_box.tolist(), outline='green', width=2)
+                    fname = target.get('file_name', f'image_{batch_idx*len(images)+i}')
+                    base = os.path.splitext(fname)[0]
+                    save_path = os.path.join(predictions_dir, f"{base}_iou_{iou_val:.4f}.jpg")
+                    img_pil.save(save_path)
 
-    mean_iou = np.mean(ious) if ious else 0.0
+    # Basic metrics
+    mean_iou = float(np.mean(ious)) if ious else 0.0
     accuracy = TP_count / total if total > 0 else 0.0
-    ap = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
-
-    # Additional metrics: precision, recall, and F1 score:
+    ap_50 = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
     precision = TP_count / (TP_count + FP_count) if (TP_count + FP_count) > 0 else 0.0
     recall_metric = TP_count / (TP_count + FN_count) if (TP_count + FN_count) > 0 else 0.0
     f1_score = 2 * precision * recall_metric / (precision + recall_metric) if (precision + recall_metric) > 0 else 0.0
 
-    if verbose:
-        logger.info(f"Mean IoU on test set: {mean_iou:.4f}")
-        logger.info(f"Detection Accuracy on test set (IoU threshold {iou_threshold}): {accuracy:.4f}")
-        logger.info(f"mAP on test set (IoU threshold {iou_threshold} & confidence threshold {confidence_threshold}): {ap:.4f}")
-        logger.info(f"TP: {TP_count}, FP: {FP_count}, FN: {FN_count}, TN: {TN_count}")
-        logger.info(f"Precision: {precision:.4f}")
-        logger.info(f"Recall: {recall_metric:.4f}")
-        logger.info(f"F1 Score: {f1_score:.4f}")
+    # New multi-threshold metrics
+    detections = get_all_detections(model, dataloader, device, iou_threshold)
+    prroc = compute_pr_roc(detections)
+    mAP_50_95, per_iou_ap = compute_coco_map(model, dataloader, device, 0.5, 0.95, 0.05, confidence_threshold)
 
-    return ious, mean_iou, accuracy, ap, precision, recall_metric, f1_score
+    # Plotting curves
+    plot_precision_recall_curve(prroc['precision'], prroc['recall'], plots_dir)
+    plot_f1_curve(prroc['f1'], prroc['pr_thresholds'], plots_dir)
+    plot_roc_curve(prroc['fpr'], prroc['tpr'], prroc['roc_auc'], plots_dir)
+
+    if verbose:
+        logger.info(f"Mean IoU: {mean_iou:.4f}")
+        logger.info(f"Accuracy (IoU>{iou_threshold}): {accuracy:.4f}")
+        logger.info(f"AP@IoU>{iou_threshold}: {ap_50:.4f}")
+        logger.info(f"mAP@[0.50:0.95]: {mAP_50_95:.4f}")
+        logger.info(f"Precision: {precision:.4f}, Recall: {recall_metric:.4f}, F1: {f1_score:.4f}")
+        logger.info(f"ROC AUC: {prroc['roc_auc']:.4f}")
+
+    return {
+        'ious': ious,
+        'mean_iou': mean_iou,
+        'accuracy': accuracy,
+        'ap_50': ap_50,
+        'mAP_50_95': mAP_50_95,
+        'per_iou_ap': per_iou_ap,
+        'precision': precision,
+        'recall': recall_metric,
+        'f1': f1_score,
+        'roc_auc': prroc['roc_auc']
+    }
