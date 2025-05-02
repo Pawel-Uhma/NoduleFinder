@@ -67,6 +67,7 @@ def compute_map(model, dataloader, device, iou_threshold=0.5, confidence_thresho
     for i in range(1, len(mrec)):
         ap += (mrec[i] - mrec[i - 1]) * mpre[i]
     return ap
+
 def get_all_detections(model, dataloader, device, iou_threshold=0.5):
     model.eval()
     detections = []
@@ -185,6 +186,7 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
     plot_roc_curve(prroc['fpr'], prroc['tpr'], prroc['roc_auc'], plots_dir)
 
     if verbose:
+        logger.info(f"TP: {TP_count}, TN: {TN_count}, FN: {FN_count}")
         logger.info(f"Mean IoU: {mean_iou:.4f}")
         logger.info(f"Accuracy (IoU>{iou_threshold}): {accuracy:.4f}")
         logger.info(f"AP@IoU>{iou_threshold}: {ap_50:.4f}")
