@@ -20,7 +20,7 @@ class Trainer:
         self.accuracy_history = []
         self.mean_iou_history = []
 
-    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir="", plots_dir=""):
+    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir="", plots_dir="./plots/"):
         logger.info("🚀 Starting training loop...")
         self.model.to(self.device)
         self.model.train()
@@ -95,8 +95,7 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
             train_dataloader,
             num_epochs,
             scheduler,
-            eval_dataloader=train_dataloader,
-            predictions_dir=plots_dir
+            eval_dataloader=train_dataloader
         )
 
         plot_loss(loss_history, title="Training Loss", dir=plots_dir)

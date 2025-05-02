@@ -5,11 +5,6 @@ model_file: "./models/trained_model" # Faster R-CNN model file
 plots_dir: "./plots/"
 predictions_dir: "./data/predictions"
 
-# New keys for YOLO v8
-yolo_model_file: "./models/yolov8_trained_model"
-yolo_predictions_dir: "./data/yolo_predictions"
-yolo_plots_dir: "./plots/yolo"
-
 seed: 42
 dimension: 256
 batch_size: 1
