@@ -4,7 +4,7 @@ import logging
 from model import ModelFactory
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
-from plots import plot_loss, plot_map_accuracy, plot_iou_trend
+from plots import *
 from evaluate import evaluate_model
 
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,7 @@ class Trainer:
         self.accuracy_history = []
         self.mean_iou_history = []
 
-    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir=""):
+    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir="", plots_dir = "./plots"):
         logger.info("🚀 Starting training loop...")
         self.model.to(self.device)
         self.model.train()
@@ -54,6 +54,7 @@ class Trainer:
                 eval_dataloader,
                 self.device,
                 predictions_dir,
+                plots_dir,
                 save_predictions=False,
                 verbose=False
             )
@@ -65,7 +66,7 @@ class Trainer:
         return self.loss_history
 
 
-def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
+def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
@@ -86,7 +87,8 @@ def load_or_train_model(model_file: str, num_classes: int, train_dataloader, dev
             num_epochs,
             scheduler,
             eval_dataloader=train_dataloader,
-            predictions_dir=plots_dir
+            predictions_dir,
+            plots_dir
         )
 
         plot_loss(loss_history, title="Training Loss", dir=plots_dir)
