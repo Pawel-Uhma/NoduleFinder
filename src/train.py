@@ -20,7 +20,7 @@ class Trainer:
         self.accuracy_history = []
         self.mean_iou_history = []
 
-    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir=""):
+    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir="", plots_dir=""):
         logger.info("🚀 Starting training loop...")
         self.model.to(self.device)
         self.model.train()
@@ -48,22 +48,31 @@ class Trainer:
                 scheduler.step()
 
         if eval_dataloader:
+            # switch to eval mode
             self.model.eval()
-            ious, mean_iou, accuracy, ap, precision, recall_metric, f1_score = evaluate_model(
+
+            # call evaluate_model and get metrics dict
+            metrics = evaluate_model(
                 self.model,
                 eval_dataloader,
                 self.device,
-                predictions_dir,
+                predictions_dir=predictions_dir,
+                plots_dir=plots_dir,
                 save_predictions=False,
-                plots_dir="./plots",
                 verbose=False
             )
-            self.mean_iou_history.append(mean_iou)
-            self.accuracy_history.append(accuracy)
-            self.map_history.append(ap)
+
+            # update histories
+            self.mean_iou_history.append(metrics['mean_iou'])
+            self.accuracy_history.append(metrics['accuracy'])
+            # record COCO-style mAP@[.50:.95]
+            self.map_history.append(metrics['mAP_50_95'])
+
+            # back to train mode
             self.model.train()
 
         return self.loss_history
+
 
 
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
