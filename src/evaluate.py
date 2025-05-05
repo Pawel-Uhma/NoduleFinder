@@ -2,7 +2,7 @@
 import os, torch, numpy as np, logging, shutil
 from PIL import Image, ImageDraw
 from torchvision.transforms.functional import to_pil_image
-from sklearn.metrics import precision_recall_curve, roc_curve, auc
+from sklearn.metrics import precision_recall_curve, roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay
 from plots import *
 
 logging.basicConfig(level=logging.INFO)
@@ -114,12 +114,12 @@ def compute_pr_roc(detections):
     }
 
 
-def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_predictions=True,
+def evaluate_model(model, dataloader, device, predictions_dir, plots_dir, save_predictions=True,
                    iou_threshold=0.5, confidence_threshold=0.5, verbose=True):
-    # Existing detection evaluation (IoU, TP/FP/FN counts etc.)
     model.eval()
     ious = []
     TP_count = FP_count = FN_count = TN_count = total = 0
+    y_true, y_pred = [], []
 
     if verbose and save_predictions:
         if os.path.exists(predictions_dir):
@@ -133,6 +133,7 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
             for i, (pred, target) in enumerate(zip(predictions, targets)):
                 total += 1
                 gt_box = target['boxes'][0].cpu().numpy()
+                # determine best detection
                 if len(pred['boxes']) > 0:
                     scores = pred['scores'].cpu().numpy()
                     boxes = pred['boxes'].cpu().numpy()
@@ -142,9 +143,11 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
                         FN_count += 1
                         iou_val = 0.0
                         pred_box = None
+                        pred_present = 0
                     else:
                         pred_box = boxes[best_idx]
                         iou_val = compute_iou(gt_box, pred_box)
+                        pred_present = 1
                         if iou_val >= iou_threshold:
                             TP_count += 1
                         else:
@@ -154,8 +157,14 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
                     FN_count += 1
                     iou_val = 0.0
                     pred_box = None
+                    pred_present = 0
 
+                # record metrics
                 ious.append(iou_val)
+                y_true.append(1)
+                y_pred.append(pred_present)
+
+                # save annotated image
                 if verbose and save_predictions:
                     img_pil = to_pil_image(images[i].cpu())
                     draw = ImageDraw.Draw(img_pil)
@@ -167,7 +176,7 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
                     save_path = os.path.join(predictions_dir, f"{base}_iou_{iou_val:.4f}.jpg")
                     img_pil.save(save_path)
 
-    # Basic metrics
+    # compute basic and multi-threshold metrics
     mean_iou = float(np.mean(ious)) if ious else 0.0
     accuracy = TP_count / total if total > 0 else 0.0
     ap_50 = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
@@ -175,18 +184,28 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
     recall_metric = TP_count / (TP_count + FN_count) if (TP_count + FN_count) > 0 else 0.0
     f1_score = 2 * precision * recall_metric / (precision + recall_metric) if (precision + recall_metric) > 0 else 0.0
 
-    # New multi-threshold metrics
     detections = get_all_detections(model, dataloader, device, iou_threshold)
     prroc = compute_pr_roc(detections)
     mAP_50_95, per_iou_ap = compute_coco_map(model, dataloader, device, 0.5, 0.95, 0.05, confidence_threshold)
 
-    # Plotting curves
+    # plot curves
     plot_precision_recall_curve(prroc['precision'], prroc['recall'], plots_dir)
     plot_f1_curve(prroc['f1'], prroc['pr_thresholds'], plots_dir)
     plot_roc_curve(prroc['fpr'], prroc['tpr'], prroc['roc_auc'], plots_dir)
 
+    # confusion matrix plot
+    cm = confusion_matrix(y_true, y_pred, labels=[0,1])
+    disp = ConfusionMatrixDisplay(cm, display_labels=['No Detection', 'Detection'])
+    fig, ax = plt.subplots()
+    disp.plot(ax=ax)
+    plt.title('Confusion Matrix')
+    cm_path = os.path.join(plots_dir, 'confusion_matrix.png')
+    fig.savefig(cm_path)
+    plt.close(fig)
+    logger.info(f"✅ Confusion matrix saved to {cm_path}")
+
     if verbose:
-        logger.info(f"TP: {TP_count}, TN: {TN_count}, FN: {FN_count}")
+        logger.info(f"TP: {TP_count}, FP: {FP_count}, FN: {FN_count}, TN: {TN_count}")
         logger.info(f"Mean IoU: {mean_iou:.4f}")
         logger.info(f"Accuracy (IoU>{iou_threshold}): {accuracy:.4f}")
         logger.info(f"AP@IoU>{iou_threshold}: {ap_50:.4f}")
@@ -204,5 +223,6 @@ def evaluate_model(model, dataloader, device, predictions_dir,plots_dir, save_pr
         'precision': precision,
         'recall': recall_metric,
         'f1': f1_score,
-        'roc_auc': prroc['roc_auc']
+        'roc_auc': prroc['roc_auc'],
+        'confusion_matrix': cm
     }
