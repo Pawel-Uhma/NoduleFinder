@@ -5,8 +5,9 @@ model_file: "./models/trained_model" # Faster R-CNN model file
 plots_dir: "./plots/"
 predictions_dir: "./data/predictions"
 
-seed: 43
+seed: 10
 # 42 -15
+# 43 - 15
 
 dimension: 256
 batch_size: 1
