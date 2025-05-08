@@ -51,10 +51,6 @@ class ToTensorTransform:
         return self._totensor(image), target
 
 
-# ---------------------------------------------------------------------------
-# Dataset
-# ---------------------------------------------------------------------------
-
 class NoduleDataset(Dataset):
     def __init__(
         self,
@@ -63,8 +59,6 @@ class NoduleDataset(Dataset):
         img_dim: int = 256,
         transform: Callable = None,
     ):
-        """Bounding‑box CSV must contain *normalized* coords in `[0,1]`."""
-
         self.images_dir = images_dir
         self.img_dim = img_dim  # kept for compatibility but no longer used in __getitem__
 
@@ -115,10 +109,6 @@ class NoduleDataset(Dataset):
         image, target = self.transform(image, target)
         return image, target
 
-
-# ---------------------------------------------------------------------------
-# Public helper for training / validation splits
-# ---------------------------------------------------------------------------
 
 def collate_fn(batch):
     return tuple(zip(*batch))
