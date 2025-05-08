@@ -1,18 +1,3 @@
-#!/usr/bin/env python
-"""Dataset and dataloader utilities **with data‑augmentation**.
-
-Key additions  
----------------
-* Augmentation pipeline (horizontal flip) that keeps bounding boxes in sync.  
-* Generic `Compose` wrapper so you can easily stack more transforms later.  
-* Train/val datasets now get **different** transforms in `get_dataloaders()` –
-  the training set is augmented, the validation/test set is not.
-
-Drop more transforms into `train_transform` (e.g. `ColorJitter`, `RandomRotation`)
-as long as you adjust bounding boxes inside a custom transform the same way we
-do in `RandomHorizontalFlip`.
-"""
-
 import csv
 import logging
 import os
@@ -26,10 +11,6 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import ToTensor
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Augmentation primitives that operate on *(image, target)* pairs
-# ---------------------------------------------------------------------------
 
 class Compose:
     """Compose a list of transforms that accept **and return** `(image, target)`."""
@@ -129,7 +110,6 @@ class NoduleDataset(Dataset):
         target = {
             "boxes": box,
             "labels": torch.tensor([1], dtype=torch.int64),
-            "file_name": item["filename"],
         }
 
         image, target = self.transform(image, target)
