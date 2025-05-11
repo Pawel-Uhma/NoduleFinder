@@ -171,9 +171,18 @@ def evaluate_model(model, dataloader, device, predictions_dir, plots_dir, save_p
                     if pred_box is not None:
                         draw.rectangle(pred_box.tolist(), outline='red', width=2)
                     draw.rectangle(gt_box.tolist(), outline='green', width=2)
+
+                    # get original filename (fallback to a generated one if missing)
                     fname = target.get('file_name', f'image_{batch_idx*len(images)+i}')
-                    base = os.path.splitext(fname)[0]
-                    save_path = os.path.join(predictions_dir, f"{base}_iou_{iou_val:.4f}.jpg")
+                    original = os.path.basename(fname)
+                    base, ext = os.path.splitext(original)
+                    # default to .jpg if no extension
+                    if not ext:
+                        ext = '.jpg'
+                    # build new name: original base + IoU score + original extension
+                    save_name = f"{base}_iou_{iou_val:.4f}{ext}"
+                    save_path = os.path.join(predictions_dir, save_name)
+
                     img_pil.save(save_path)
 
     # compute basic and multi-threshold metrics
