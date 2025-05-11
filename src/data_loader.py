@@ -104,6 +104,7 @@ class NoduleDataset(Dataset):
         target = {
             "boxes": box,
             "labels": torch.tensor([1], dtype=torch.int64),
+            "file_name": item["filename"]
         }
 
         image, target = self.transform(image, target)
