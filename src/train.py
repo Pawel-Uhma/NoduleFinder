@@ -30,7 +30,7 @@ class Trainer:
             epoch_loss = 0.0
             for images, targets in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
                 images = [img.to(self.device) for img in images]
-                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+                targets = [{k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
                 loss_dict = self.model(images, targets)
                 losses = sum(loss for loss in loss_dict.values())
 
