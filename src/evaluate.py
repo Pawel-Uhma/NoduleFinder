@@ -165,25 +165,26 @@ def evaluate_model(model, dataloader, device, predictions_dir, plots_dir, save_p
                 y_pred.append(pred_present)
 
                 # save annotated image
-                if verbose and save_predictions:
-                    img_pil = to_pil_image(images[i].cpu())
-                    draw = ImageDraw.Draw(img_pil)
-                    if pred_box is not None:
-                        draw.rectangle(pred_box.tolist(), outline='red', width=2)
-                    draw.rectangle(gt_box.tolist(), outline='green', width=2)
+                if verbose:
+                    plot_precision_recall_curve(prroc['precision'], prroc['recall'], plots_dir)
+                    plot_f1_curve(prroc['f1'], prroc['pr_thresholds'], plots_dir)
+                    plot_roc_curve(prroc['fpr'], prroc['tpr'], prroc['roc_auc'], plots_dir)
 
-                    # get original filename (fallback to a generated one if missing)
-                    fname = target.get('file_name', f'image_{batch_idx*len(images)+i}')
-                    original = os.path.basename(fname)
-                    base, ext = os.path.splitext(original)
-                    # default to .jpg if no extension
-                    if not ext:
-                        ext = '.jpg'
-                    # build new name: original base + IoU score + original extension
-                    save_name = f"{base}_iou_{iou_val:.4f}{ext}"
-                    save_path = os.path.join(predictions_dir, save_name)
-
-                    img_pil.save(save_path)
+                    # confusion matrix plot
+                    TN_count = total - (TP_count + FP_count + FN_count)
+                    cm = np.array([[TN_count, FP_count],
+                                [FN_count, TP_count]])
+                    disp = ConfusionMatrixDisplay(
+                        confusion_matrix=cm,
+                        display_labels=['True Negative', 'True Positive']
+                    )
+                    fig, ax = plt.subplots()
+                    disp.plot(ax=ax)
+                    plt.title('Confusion Matrix')
+                    cm_path = os.path.join(plots_dir, 'confusion_matrix.png')
+                    fig.savefig(cm_path)
+                    plt.close(fig)
+                    logger.info(f"✅ Confusion matrix saved to {cm_path}")
 
     # compute basic and multi-threshold metrics
     mean_iou = float(np.mean(ious)) if ious else 0.0

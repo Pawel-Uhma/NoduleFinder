@@ -75,7 +75,7 @@ class Trainer:
                     predictions_dir=predictions_dir,
                     plots_dir=plots_dir,
                     save_predictions=False,
-                    verbose=False
+                    verbose=False     # <-- this prevents plotting during evaluation
                 )
                 # append one point PER epoch
                 self.mean_iou_history.append(metrics["mean_iou"])
@@ -84,7 +84,13 @@ class Trainer:
                 # back to train for next epoch
                 self.model.train()
 
+        # --- At the end of training, plot the entire history ---
+        plot_loss(self.loss_history, title="Training Loss", dir=plots_dir)
+        plot_map_accuracy(self.map_history, self.accuracy_history, dir=plots_dir)
+        plot_iou_trend(self.mean_iou_history, dir=plots_dir)
+
         return self.loss_history
+
 
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")
