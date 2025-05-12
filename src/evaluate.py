@@ -113,3 +113,115 @@ def compute_pr_roc(detections):
         'roc_auc': roc_auc
     }
 
+
+def evaluate_model(
+    model,
+    dataloader,
+    device,
+    predictions_dir,
+    plots_dir,
+    save_predictions=True,
+    iou_threshold=0.5,
+    confidence_threshold=0.5,
+    verbose=True
+):
+    model.eval()
+    ious = []
+    TP_count = FP_count = FN_count = total = 0
+
+    if verbose and save_predictions:
+        if os.path.exists(predictions_dir):
+            shutil.rmtree(predictions_dir)
+        os.makedirs(predictions_dir)
+
+    with torch.no_grad():
+        for batch_idx, (images, targets) in enumerate(dataloader):
+            images = [img.to(device) for img in images]
+            predictions = model(images)
+
+            for i, (pred, target) in enumerate(zip(predictions, targets)):
+                total += 1
+                gt_box = target['boxes'][0].cpu().numpy()
+
+                # pick best prediction
+                if len(pred['boxes']) > 0:
+                    scores = pred['scores'].cpu().numpy()
+                    boxes  = pred['boxes'].cpu().numpy()
+                    best_idx   = scores.argmax()
+                    best_score = float(scores[best_idx])
+
+                    if best_score < confidence_threshold:
+                        FN_count += 1
+                        iou_val   = 0.0
+                        pred_box  = None
+                        pred_flag = 0
+                    else:
+                        pred_box  = boxes[best_idx]
+                        iou_val   = compute_iou(gt_box, pred_box)
+                        pred_flag = int(iou_val >= iou_threshold)
+                        if pred_flag:
+                            TP_count += 1
+                        else:
+                            FP_count += 1
+                            FN_count += 1
+                else:
+                    FN_count += 1
+                    iou_val   = 0.0
+                    pred_box  = None
+                    pred_flag = 0
+
+                ious.append(iou_val)
+
+                if verbose and save_predictions:
+                    img_pil = to_pil_image(images[i].cpu())
+                    draw    = ImageDraw.Draw(img_pil)
+                    if pred_box is not None:
+                        draw.rectangle(pred_box.tolist(), outline='red', width=2)
+                    draw.rectangle(gt_box.tolist(), outline='green', width=2)
+
+                    orig = target.get('file_name', f"image_{batch_idx*len(images)+i}")
+                    base, ext = os.path.splitext(os.path.basename(orig))
+                    ext = ext or '.jpg'
+                    save_name = f"{base}_iou_{iou_val:.4f}{ext}"
+                    img_pil.save(os.path.join(predictions_dir, save_name))
+
+    # compute metrics
+    mean_iou = float(np.mean(ious)) if ious else 0.0
+    accuracy = TP_count / total if total > 0 else 0.0
+    ap_50    = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
+
+    detections   = get_all_detections(model, dataloader, device, iou_threshold)
+    prroc        = compute_pr_roc(detections)
+    mAP_50_95, _ = compute_coco_map(model, dataloader, device, 0.5, 0.95, 0.05, confidence_threshold)
+
+    if verbose:
+        # precision–recall, F1 and ROC curves
+        plot_precision_recall_curve(prroc['precision'], prroc['recall'], plots_dir)
+        plot_f1_curve(prroc['f1'], prroc['pr_thresholds'], plots_dir)
+        plot_roc_curve(prroc['fpr'], prroc['tpr'], prroc['roc_auc'], plots_dir)
+
+        # TP/FP/FN/TN confusion matrix
+        TN_count = total - (TP_count + FP_count + FN_count)
+        cm = np.array([[TN_count, FP_count],
+                       [FN_count, TP_count]])
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,
+                                      display_labels=['True Negative', 'True Positive'])
+        fig, ax = plt.subplots()
+        disp.plot(ax=ax)
+        plt.title('Confusion Matrix')
+        fig.savefig(os.path.join(plots_dir, 'confusion_matrix.png'))
+        plt.close(fig)
+        logger.info(f"✅ Confusion matrix saved to {os.path.join(plots_dir, 'confusion_matrix.png')}")
+
+    return {
+        'mean_iou':     mean_iou,
+        'accuracy':     accuracy,
+        'ap_50':        ap_50,
+        'mAP_50_95':    mAP_50_95,
+        'precision':    TP_count / (TP_count + FP_count) if (TP_count + FP_count) > 0 else 0.0,
+        'recall':       TP_count / (TP_count + FN_count) if (TP_count + FN_count) > 0 else 0.0,
+        'f1':           2 * (TP_count / (TP_count + FP_count)) * (TP_count / (TP_count + FN_count)) /
+                        ((TP_count / (TP_count + FP_count)) + (TP_count / (TP_count + FN_count)) + 1e-8),
+        'roc_auc':      prroc['roc_auc'],
+        'confusion_matrix': cm
+    }
