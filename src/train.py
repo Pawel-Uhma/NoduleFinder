@@ -20,60 +20,71 @@ class Trainer:
         self.accuracy_history = []
         self.mean_iou_history = []
 
-    def train(self, dataloader, num_epochs, scheduler=None, eval_dataloader=None, predictions_dir="", plots_dir="./plots/"):
-        logger.info("🚀 Starting training loop...")
+    def train(
+        self,
+        dataloader,
+        num_epochs,
+        scheduler=None,
+        eval_dataloader=None,
+        predictions_dir="",
+        plots_dir="./plots/",
+    ):
+        logger.info("🚀 Starting training loop.")
         self.model.to(self.device)
-        self.model.train()
 
         for epoch in range(num_epochs):
-            logger.info(f"🔁 Epoch {epoch+1}/{num_epochs}...")
+            logger.info(f"🔁 Epoch {epoch+1}/{num_epochs}.")
+            self.model.train()
             epoch_loss = 0.0
-            for images, targets in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
-                images = [img.to(self.device) for img in images]
-                targets = [{k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-                loss_dict = self.model(images, targets)
-                losses = sum(loss for loss in loss_dict.values())
 
+            for images, targets in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
+                # move inputs
+                images = [img.to(self.device) for img in images]
+                # only move tensor values; keep strings (e.g. file_name) intact
+                targets = [
+                    {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                     for k, v in t.items()}
+                    for t in targets
+                ]
+
+                # forward + backward
+                loss_dict = self.model(images, targets)
+                loss = sum(loss for loss in loss_dict.values())
                 self.optimizer.zero_grad()
-                losses.backward()
+                loss.backward()
                 self.optimizer.step()
 
-                epoch_loss += losses.item()
+                epoch_loss += loss.item()
 
+            # record epoch loss
             avg_loss = epoch_loss / len(dataloader)
             logger.info(f"📉 Epoch {epoch+1} complete. Avg Loss: {avg_loss:.4f}")
             self.loss_history.append(avg_loss)
 
+            # scheduler step
             if scheduler:
                 scheduler.step()
 
-        if eval_dataloader:
-            # switch to eval mode
-            self.model.eval()
-
-            # call evaluate_model and get metrics dict
-            metrics = evaluate_model(
-                self.model,
-                eval_dataloader,
-                self.device,
-                predictions_dir=predictions_dir,
-                plots_dir=plots_dir,
-                save_predictions=False,
-                verbose=False
-            )
-
-            # update histories
-            self.mean_iou_history.append(metrics['mean_iou'])
-            self.accuracy_history.append(metrics['accuracy'])
-            # record COCO-style mAP@[.50:.95]
-            self.map_history.append(metrics['mAP_50_95'])
-
-            # back to train mode
-            self.model.train()
+            # --- evaluate on validation set at end of this epoch ---
+            if eval_dataloader is not None:
+                self.model.eval()
+                metrics = evaluate_model(
+                    self.model,
+                    eval_dataloader,
+                    self.device,
+                    predictions_dir=predictions_dir,
+                    plots_dir=plots_dir,
+                    save_predictions=False,
+                    verbose=False
+                )
+                # append one point PER epoch
+                self.mean_iou_history.append(metrics["mean_iou"])
+                self.accuracy_history.append(metrics["accuracy"])
+                self.map_history.append(metrics["mAP_50_95"])
+                # back to train for next epoch
+                self.model.train()
 
         return self.loss_history
-
-
 
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
     logger.info(f"📂 Checking for model at: {model_file}")

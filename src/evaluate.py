@@ -203,8 +203,16 @@ def evaluate_model(model, dataloader, device, predictions_dir, plots_dir, save_p
     plot_roc_curve(prroc['fpr'], prroc['tpr'], prroc['roc_auc'], plots_dir)
 
     # confusion matrix plot
-    cm = confusion_matrix(y_true, y_pred, labels=[0,1])
-    disp = ConfusionMatrixDisplay(cm, display_labels=['No Detection', 'Detection'])
+    # build TP/FP/FN/TN matrix explicitly
+    TN_count = total - (TP_count + FP_count + FN_count)
+    # cm layout: [[TN, FP],
+    #             [FN, TP]]
+    cm = np.array([[TN_count, FP_count],
+                   [FN_count, TP_count]])
+    disp = ConfusionMatrixDisplay(
+        confusion_matrix=cm,
+        display_labels=['True Negative', 'True Positive']
+    )
     fig, ax = plt.subplots()
     disp.plot(ax=ax)
     plt.title('Confusion Matrix')
