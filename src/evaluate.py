@@ -193,7 +193,8 @@ def evaluate_model(
     detections   = get_all_detections(model, dataloader, device, iou_threshold)
     prroc        = compute_pr_roc(detections)
     mAP_50_95, _ = compute_coco_map(model, dataloader, device, 0.5, 0.95, 0.05, confidence_threshold)
-
+    cm = np.array([[TN_count, FP_count],[FN_count, TP_count]])
+    
     if verbose:
         # precision–recall, F1 and ROC curves
         plot_precision_recall_curve(prroc['precision'], prroc['recall'], plots_dir)
@@ -202,8 +203,7 @@ def evaluate_model(
 
         # TP/FP/FN/TN confusion matrix
         TN_count = total - (TP_count + FP_count + FN_count)
-        cm = np.array([[TN_count, FP_count],
-                       [FN_count, TP_count]])
+        
         disp = ConfusionMatrixDisplay(confusion_matrix=cm,
                                       display_labels=['True Negative', 'True Positive'])
         fig, ax = plt.subplots()
