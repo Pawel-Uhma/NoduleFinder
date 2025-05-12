@@ -185,19 +185,23 @@ def evaluate_model(
                     save_name = f"{base}_iou_{iou_val:.4f}{ext}"
                     img_pil.save(os.path.join(predictions_dir, save_name))
 
-    # compute metrics
+    # Aggregate single-threshold metrics
     mean_iou = float(np.mean(ious)) if ious else 0.0
     accuracy = TP_count / total if total > 0 else 0.0
-    ap_50    = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
+    ap_50 = compute_map(model, dataloader, device, iou_threshold, confidence_threshold)
+    precision = TP_count / (TP_count + FP_count) if (TP_count + FP_count) > 0 else 0.0
+    recall = TP_count / (TP_count + FN_count) if (TP_count + FN_count) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
-    detections   = get_all_detections(model, dataloader, device, iou_threshold)
-    prroc        = compute_pr_roc(detections)
-    mAP_50_95, _ = compute_coco_map(model, dataloader, device, 0.5, 0.95, 0.05, confidence_threshold)
+    # Multi-threshold metrics
+    detections = get_all_detections(model, dataloader, device, iou_threshold)
+    prroc = compute_pr_roc(detections)
+    mAP_50_95, per_iou_map = compute_coco_map(model, dataloader, device, 0.5, 0.95, 0.05, confidence_threshold)
 
-    # TP/FP/FN/TN confusion matrix
-    TN_count = total - (TP_count + FP_count + FN_count)
-    cm = np.array([[TN_count, FP_count],[FN_count, TP_count]])
-    
+    # Confusion matrix with TN=0
+    TN_count = 0
+    cm = np.array([[TP_count, FN_count], [FP_count, TN_count]])
+
     if verbose:
         # precision–recall, F1 and ROC curves
         plot_precision_recall_curve(prroc['precision'], prroc['recall'], plots_dir)
@@ -206,13 +210,25 @@ def evaluate_model(
 
 
         disp = ConfusionMatrixDisplay(confusion_matrix=cm,
-                                      display_labels=['True Negative', 'True Positive'])
+                                      display_labels=['Positive', 'Negative'])
         fig, ax = plt.subplots()
-        disp.plot(ax=ax)
-        plt.title('Confusion Matrix')
+        disp.plot(ax=ax, values_format='d')
+        ax.set_xlabel('Predicted')
+        ax.set_ylabel('Actual')
+        ax.set_title('Confusion Matrix')
         fig.savefig(os.path.join(plots_dir, 'confusion_matrix.png'))
         plt.close(fig)
         logger.info(f"✅ Confusion matrix saved to {os.path.join(plots_dir, 'confusion_matrix.png')}")
+
+                # Final metric logs
+        logger.info(f"Mean IoU: {mean_iou:.4f}")
+        logger.info(f"Accuracy (IoU>{iou_threshold}): {accuracy:.4f}")
+        logger.info(f"AP@0.50: {ap_50:.4f}")
+        logger.info(f"mAP@[0.50:0.95]: {mAP_50_95:.4f}")
+        logger.info(f"Precision: {precision:.4f}")
+        logger.info(f"Recall: {recall:.4f}")
+        logger.info(f"F1 Score: {f1:.4f}")
+        logger.info(f"ROC AUC: {prroc['roc_auc']:.4f}")
 
     return {
         'mean_iou':     mean_iou,
