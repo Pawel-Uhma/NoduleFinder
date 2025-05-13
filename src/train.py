@@ -46,7 +46,7 @@ class Trainer:
     def _average_batch_loss(self, images, targets) -> torch.Tensor:
         """Compute total loss for a mini‑batch returned by the detection model."""
         loss_dict = self.model(images, targets)
-        total_loss = sum(v for v in loss_dict.values())
+        total_loss = (sum(v for v in loss_dict.values()) if isinstance(loss_dict, dict) else sum(loss_dict))
         return total_loss
 
     def _compute_validation_loss(self, dataloader) -> float:
