@@ -48,20 +48,19 @@ class Trainer:
         losses = self.model(images, targets)
 
         if isinstance(losses, dict):
-            # Standard torchvision models – one dict with scalar tensors
             total = sum(losses.values())
 
         elif isinstance(losses, (list, tuple)):
-            # Sequence – flatten eventual inner dicts/tensors
             total = 0
             for item in losses:
                 if isinstance(item, dict):
                     total += sum(item.values())
-                else:                     # already a scalar tensor
+                else:          # already a scalar tensor
                     total += item
         else:
-            # Model returns a single scalar tensor
-            total = losses
+            total = losses     # single tensor
+
+        return total           # ← add this line
 
     def _compute_validation_loss(self, dataloader) -> float:
         """Run a quick forward pass on the validation set and return mean loss."""
