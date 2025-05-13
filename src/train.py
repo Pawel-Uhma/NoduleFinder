@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union, Dict
 
 import torch
 from torch.optim.lr_scheduler import StepLR
@@ -43,24 +43,33 @@ class Trainer:
     # ───────────────────────────────────────────────────────────────────────
     # Helpers
     # ───────────────────────────────────────────────────────────────────────
+    def _reduce_to_scalar(self, obj: Union[torch.Tensor,
+                                        Dict, List, Tuple]) -> torch.Tensor:
+        """
+        Recursively collapse the loss tree returned by the model into **one**
+        scalar tensor so it can be back-propagated and logged safely.
+
+            • Tensor (any shape)        →   tensor.sum()
+            • Dict  {k: v}              →   Σ  _reduce_to_scalar(v)
+            • List / Tuple [v, …]       →   Σ  _reduce_to_scalar(v)
+        """
+        if torch.is_tensor(obj):
+            # keep gradients – no .item() here
+            return obj if obj.dim() == 0 else obj.sum()
+
+        if isinstance(obj, dict):
+            return sum(self._reduce_to_scalar(v) for v in obj.values())
+
+        if isinstance(obj, (list, tuple)):
+            return sum(self._reduce_to_scalar(v) for v in obj)
+
+        raise TypeError(f"Unsupported loss structure: {type(obj)}")
+
+
     def _average_batch_loss(self, images, targets) -> torch.Tensor:
-        """Aggregate all losses coming back from the detection model."""
-        losses = self.model(images, targets)
-
-        if isinstance(losses, dict):
-            total = sum(losses.values())
-
-        elif isinstance(losses, (list, tuple)):
-            total = 0
-            for item in losses:
-                if isinstance(item, dict):
-                    total += sum(item.values())
-                else:          # already a scalar tensor
-                    total += item
-        else:
-            total = losses     # single tensor
-
-        return total           # ← add this line
+        """Forward pass + safe aggregation to a single scalar loss."""
+        raw_losses = self.model(images, targets)
+        return self._reduce_to_scalar(raw_losses)
 
     def _compute_validation_loss(self, dataloader) -> float:
         """Run a quick forward pass on the validation set and return mean loss."""
