@@ -44,10 +44,24 @@ class Trainer:
     # Helpers
     # ───────────────────────────────────────────────────────────────────────
     def _average_batch_loss(self, images, targets) -> torch.Tensor:
-        """Compute total loss for a mini‑batch returned by the detection model."""
-        loss_dict = self.model(images, targets)
-        total_loss = (sum(v for v in loss_dict.values()) if isinstance(loss_dict, dict) else sum(loss_dict))
-        return total_loss
+        """Aggregate all losses coming back from the detection model."""
+        losses = self.model(images, targets)
+
+        if isinstance(losses, dict):
+            # Standard torchvision models – one dict with scalar tensors
+            total = sum(losses.values())
+
+        elif isinstance(losses, (list, tuple)):
+            # Sequence – flatten eventual inner dicts/tensors
+            total = 0
+            for item in losses:
+                if isinstance(item, dict):
+                    total += sum(item.values())
+                else:                     # already a scalar tensor
+                    total += item
+        else:
+            # Model returns a single scalar tensor
+            total = losses
 
     def _compute_validation_loss(self, dataloader) -> float:
         """Run a quick forward pass on the validation set and return mean loss."""
