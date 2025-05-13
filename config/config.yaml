@@ -5,6 +5,8 @@ model_file: "./models/trained_model" # Faster R-CNN model file
 plots_dir: "./plots/"
 predictions_dir: "./data/predictions"
 
+evaluate_each_epoch: False
+
 seed: 17
 # 42 -15
 # 10 -17

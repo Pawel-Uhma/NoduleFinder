@@ -6,10 +6,15 @@ def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss"
     os.makedirs(dir, exist_ok=True)
     filename = os.path.join(dir, "loss.png")
 
+    epochs = range(1, len(training_loss) + 1)
     plt.figure()
-    plt.plot(training_loss, label="Training Loss", marker='o')
-    if val_loss is not None:
-        plt.plot(val_loss, label="Validation Loss", marker='o')
+    plt.plot(epochs, training_loss, label="Training Loss", marker="o")
+
+    # --- NEW: keep both curves aligned even if val list is shorter -------------
+    if val_loss:
+        val_epochs = range(1, len(val_loss) + 1)
+        plt.plot(val_epochs, val_loss, label="Validation Loss", marker="o")
+        
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)

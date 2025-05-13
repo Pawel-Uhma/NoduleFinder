@@ -1,137 +1,281 @@
-import torch
 import os
 import logging
-from model import ModelFactory
+from typing import List, Tuple, Optional
+
+import torch
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
-from plots import *
-from evaluate import *
 
-logging.basicConfig(level=logging.INFO)
+from model import ModelFactory
+from plots import (
+    plot_loss,
+    plot_map_accuracy,
+    plot_iou_trend,
+    plot_map_vs_iou,
+)
+from evaluate import evaluate_model, compute_coco_map
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trainer
+# ─────────────────────────────────────────────────────────────────────────────
 class Trainer:
-    def __init__(self, model, optimizer, device):
+    """Wrapper that handles the full training / validation / evaluation loop."""
+
+    def __init__(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer, device: torch.device):
         self.model = model
         self.optimizer = optimizer
         self.device = device
-        self.loss_history = []
-        self.val_loss_history = []
-        self.map_history = []
-        self.accuracy_history = []
-        self.mean_iou_history = []
 
+        # History containers – guaranteed to have the same length (num_epochs)
+        self.loss_history: List[float] = []
+        self.val_loss_history: List[float] = []
+        self.map_history: List[float] = []
+        self.accuracy_history: List[float] = []
+        self.mean_iou_history: List[float] = []
+
+    # ───────────────────────────────────────────────────────────────────────
+    # Helpers
+    # ───────────────────────────────────────────────────────────────────────
+    def _average_batch_loss(self, images, targets) -> torch.Tensor:
+        """Compute total loss for a mini‑batch returned by the detection model."""
+        loss_dict = self.model(images, targets)
+        total_loss = sum(v for v in loss_dict.values())
+        return total_loss
+
+    def _compute_validation_loss(self, dataloader) -> float:
+        """Run a quick forward pass on the validation set and return mean loss."""
+        self.model.eval()
+        running_loss = 0.0
+        with torch.no_grad():
+            for images, targets in dataloader:
+                images = [img.to(self.device) for img in images]
+                targets = [
+                    {
+                        k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                        for k, v in t.items()
+                    }
+                    for t in targets
+                ]
+                running_loss += self._average_batch_loss(images, targets).item()
+        self.model.train()
+        return running_loss / len(dataloader)
+
+    # ───────────────────────────────────────────────────────────────────────
+    # Public API
+    # ───────────────────────────────────────────────────────────────────────
     def train(
         self,
-        dataloader,
-        num_epochs,
-        scheduler=None,
-        eval_dataloader=None,
-        predictions_dir="",
-        plots_dir="./plots/",
-    ):
+        dataloader: torch.utils.data.DataLoader,
+        num_epochs: int,
+        scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+        eval_dataloader: Optional[torch.utils.data.DataLoader] = None,
+        predictions_dir: str = "",  # forwarded to evaluate_model
+        plots_dir: str = "./plots/",
+        evaluate_each_epoch: bool = True,
+    ) -> Tuple[List[float], List[float]]:
+        """Main training loop.
+
+        Args:
+            dataloader: Training dataloader.
+            num_epochs: Number of epochs.
+            scheduler: Optional LR scheduler stepped once per epoch **after** all
+                training / validation work is done.
+            eval_dataloader: DataLoader used for metrics (IoU / mAP / etc.). If
+                ``None``, no metrics or validation loss will be computed.
+            predictions_dir: Passed straight through to ``evaluate_model`` –
+                can stay empty if you do not save predictions.
+            plots_dir: Destination folder for PNG plots.
+            evaluate_each_epoch: If ``True`` compute detection metrics (IoU /
+                mAP / TP‑FP‑FN) every epoch; otherwise compute them **once** at
+                the very end. Validation *loss* is always computed each epoch
+                because it is cheap and required for the two‑line loss plot.
+        Returns:
+            Tuple of (training_loss_history, validation_loss_history).
+        """
+
         logger.info("🚀 Starting training loop.")
         self.model.to(self.device)
+        os.makedirs(plots_dir, exist_ok=True)
+
+        # Pre‑declare to avoid UnboundLocalError when flag is False
+        last_per_iou_map = None  # type: ignore
+        last_metrics = None      # type: ignore
 
         for epoch in range(num_epochs):
-            logger.info(f"🔁 Epoch {epoch+1}/{num_epochs}.")
+            logger.info(f"🔁 Epoch {epoch + 1}/{num_epochs}")
             self.model.train()
             epoch_loss = 0.0
 
-            for images, targets in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
+            # ─────── Training pass ───────────────────────────────────────
+            for images, targets in tqdm(dataloader, desc=f"Epoch {epoch + 1}"):
                 images = [img.to(self.device) for img in images]
-                targets = [ {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k,v in t.items()} for t in targets ]
+                targets = [
+                    {
+                        k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                        for k, v in t.items()
+                    }
+                    for t in targets
+                ]
 
-                loss_dict = self.model(images, targets)
-                loss = sum(loss for loss in loss_dict.values())
+                total_loss = self._average_batch_loss(images, targets)
                 self.optimizer.zero_grad()
-                loss.backward()
+                total_loss.backward()
                 self.optimizer.step()
 
-                epoch_loss += loss.item()
+                epoch_loss += total_loss.item()
 
-            avg_loss = epoch_loss / len(dataloader)
-            logger.info(f"📉 Epoch {epoch+1} complete. Training Loss: {avg_loss:.4f}")
-            self.loss_history.append(avg_loss)
+            avg_train_loss = epoch_loss / len(dataloader)
+            self.loss_history.append(avg_train_loss)
+            logger.info(f"📉 Training loss: {avg_train_loss:.4f}")
 
-            # Validation loss
+            # ─────── Validation loss (always) ────────────────────────────
             if eval_dataloader is not None:
-                self.model.train()  # to compute loss
-                val_loss = 0.0
-                with torch.no_grad():
-                    for images, targets in eval_dataloader:
-                        images = [img.to(self.device) for img in images]
-                        targets = [ {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k,v in t.items()} for t in targets ]
-                        loss_dict = self.model(images, targets)
-                        val_loss += sum(loss for loss in loss_dict.values()).item()
-                avg_val_loss = val_loss / len(eval_dataloader)
-                logger.info(f"📉 Epoch {epoch+1} complete. Validation Loss: {avg_val_loss:.4f}")
+                avg_val_loss = self._compute_validation_loss(eval_dataloader)
                 self.val_loss_history.append(avg_val_loss)
+                logger.info(f"📉 Validation loss: {avg_val_loss:.4f}")
+            else:
+                # keep histories aligned
+                self.val_loss_history.append(float('nan'))
 
-            if scheduler:
-                scheduler.step()
-
-            # Evaluation metrics
-            if eval_dataloader is not None:
+            # ─────── Detection metrics (optional per‑epoch) ──────────────
+            if eval_dataloader is not None and evaluate_each_epoch:
                 self.model.eval()
-                metrics = evaluate_model(
+                last_metrics = evaluate_model(
                     self.model,
                     eval_dataloader,
                     self.device,
-                    predictions_dir=predictions_dir,
-                    plots_dir=plots_dir,
+                    predictions_dir,
+                    plots_dir,
                     save_predictions=False,
-                    verbose=False
+                    verbose=False,
                 )
-                self.mean_iou_history.append(metrics["mean_iou"])
-                self.accuracy_history.append(metrics["accuracy"])
-                self.map_history.append(metrics["mAP_50_95"])
+                self.mean_iou_history.append(last_metrics["mean_iou"])
+                self.accuracy_history.append(last_metrics["accuracy"])
+                self.map_history.append(last_metrics["mAP_50_95"])
+                last_per_iou_map = last_metrics["per_iou_map"]
                 self.model.train()
+            else:
+                # Maintain equal‑length histories for plotting later.
+                if eval_dataloader is not None:
+                    self.mean_iou_history.append(float("nan"))
+                    self.accuracy_history.append(float("nan"))
+                    self.map_history.append(float("nan"))
 
-        # Final plots
+            # ─────── Scheduler step (end of epoch) ───────────────────────
+            if scheduler is not None:
+                scheduler.step()
+
+        # ─────────────────────────────────────────────────────────────────┐
+        # Post‑training final evaluation (if not done every epoch)        │
+        # ─────────────────────────────────────────────────────────────────┘
+        if eval_dataloader is not None and not evaluate_each_epoch:
+            last_metrics = evaluate_model(
+                self.model,
+                eval_dataloader,
+                self.device,
+                predictions_dir,
+                plots_dir,
+                save_predictions=False,
+                verbose=True,  # Console prints TP / FP / FN during eval
+            )
+            last_per_iou_map = last_metrics["per_iou_map"]
+            # Append *real* metrics for the final epoch position
+            self.mean_iou_history[-1] = last_metrics["mean_iou"]
+            self.accuracy_history[-1] = last_metrics["accuracy"]
+            self.map_history[-1] = last_metrics["mAP_50_95"]
+
+        # ─────────────────────────────────────────────────────────────────┐
+        # Console summary                                                 │
+        # ─────────────────────────────────────────────────────────────────┘
+        if last_metrics is not None:
+            logger.info(
+                f"TP: {last_metrics['TP']}  "
+                f"FP: {last_metrics['FP']}  "
+                f"FN: {last_metrics['FN']}"
+            )
+            for thr, ap in last_metrics["per_iou_map"].items():
+                logger.info(f"AP@{thr:.2f}: {ap:.4f}")
+
+        # ─────────────────────────────────────────────────────────────────┐
+        # Plots                                                          │
+        # ─────────────────────────────────────────────────────────────────┘
         plot_loss(self.loss_history, self.val_loss_history, dir=plots_dir)
         plot_map_accuracy(self.map_history, self.accuracy_history, dir=plots_dir)
         plot_iou_trend(self.mean_iou_history, dir=plots_dir)
-        # new AP vs IoU plot
-        # use last-per-epoch computed per_iou_map from final metrics
-        _, per_iou_map = compute_coco_map(
-            self.model, eval_dataloader, self.device,
-            iou_min=0.5, iou_max=0.95, iou_step=0.05, conf_thres=0.0
-        )
-        plot_map_vs_iou(per_iou_map, dir=plots_dir)
+
+        # The per‑IoU mAP curve either comes from the last per‑epoch eval or
+        # from the final one‑off evaluation directly above.
+        if eval_dataloader is not None and last_per_iou_map is None:
+            # Compute it now only if truly missing.
+            _, last_per_iou_map = compute_coco_map(
+                self.model,
+                eval_dataloader,
+                self.device,
+                iou_min=0.5,
+                iou_max=0.95,
+                iou_step=0.05,
+                conf_thres=0.0,
+            )
+        if last_per_iou_map is not None:
+            plot_map_vs_iou(last_per_iou_map, dir=plots_dir)
 
         return self.loss_history, self.val_loss_history
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Convenience helper – train or load from file
+# ─────────────────────────────────────────────────────────────────────────────
+def load_or_train_model(
+    model_file: str,
+    num_classes: int,
+    train_dataloader: torch.utils.data.DataLoader,
+    eval_dataloader: Optional[torch.utils.data.DataLoader],
+    device: torch.device,
+    num_epochs: int,
+    plots_dir: str,
+    evaluate_each_epoch: bool = True,
+) -> torch.nn.Module:
+    """Load a saved model if it exists; otherwise train from scratch."""
 
-def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
-    logger.info(f"📂 Checking for model at: {model_file}")
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
     if os.path.exists(model_file):
-        logger.info("📦 Model file found. Loading saved model...")
+        logger.info("📦 Found saved model – loading from disk …")
         model = ModelFactory.get_model(num_classes)
-        model.load_state_dict(torch.load(model_file))
+        model.load_state_dict(torch.load(model_file, map_location=device))
         model.to(device)
-        logger.info("✅ Model loaded from disk and moved to device")
-    else:
-        logger.info("❌ Model not found. Starting training...")
-        model = ModelFactory.get_model(num_classes)
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
-        scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
-        trainer = Trainer(model, optimizer, device)
-        loss_history = trainer.train(
-            train_dataloader,
-            num_epochs,
-            scheduler,
-            eval_dataloader=train_dataloader
-        )
+        logger.info("✅ Model loaded and moved to device")
+        return model
 
-        plot_loss(loss_history, title="Training Loss", dir=plots_dir)
-        plot_map_accuracy(trainer.map_history, trainer.accuracy_history, dir=plots_dir)
-        plot_iou_trend(trainer.mean_iou_history, dir=plots_dir)
+    # ───────────────────────────── Train from scratch ──────────────────────
+    logger.info("❌ No saved model found – starting fresh training …")
+    model = ModelFactory.get_model(num_classes)
+    model.to(device)
 
-        torch.save(model.state_dict(), model_file)
-        logger.info(f"💾 Model trained and saved to: {model_file}")
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005
+    )
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
-    logger.info("✅ Model ready to use")
+    trainer = Trainer(model, optimizer, device)
+    trainer.train(
+        dataloader=train_dataloader,
+        num_epochs=num_epochs,
+        scheduler=scheduler,
+        eval_dataloader=eval_dataloader,
+        predictions_dir="",  # not saving predictions here
+        plots_dir=plots_dir,
+        evaluate_each_epoch=evaluate_each_epoch,
+    )
+
+    torch.save(model.state_dict(), model_file)
+    logger.info(f"💾 Model trained and saved to: {model_file}")
+
     return model

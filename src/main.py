@@ -16,6 +16,8 @@ def main():
     plots_dir = cfg["plots_dir"]
     predictions_dir = cfg["predictions_dir"]
 
+    evaluate_each_epoch = cfg.get("evaluate_each_epoch", False)
+
     seed = cfg.get("seed", 42)
     img_dim = cfg.get("dimension", 256)
     batch_size = cfg.get("batch_size", 4)
@@ -38,9 +40,11 @@ def main():
         model_file,
         num_classes,
         train_loader,
+        test_loader,
         device,
         num_epochs,
-        plots_dir
+        plots_dir,
+        evaluate_each_epoch
     )
     logger.info("✅ Faster R-CNN Training completed.")
     evaluate.evaluate_model(model, test_loader, device, predictions_dir, plots_dir)
