@@ -2,3 +2,4 @@ data/predictions
 models
 *.pyc
 __pycache__/
+src/__pycache__/

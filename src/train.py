@@ -4,18 +4,18 @@ import logging
 from model import ModelFactory
 from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
-from plots import plot_loss, plot_map_accuracy, plot_iou_trend
-from evaluate import evaluate_model
+from plots import *
+from evaluate import *
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 class Trainer:
     def __init__(self, model, optimizer, device):
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.loss_history = []
+        self.val_loss_history = []
         self.map_history = []
         self.accuracy_history = []
         self.mean_iou_history = []
@@ -38,16 +38,9 @@ class Trainer:
             epoch_loss = 0.0
 
             for images, targets in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
-                # move inputs
                 images = [img.to(self.device) for img in images]
-                # only move tensor values; keep strings (e.g. file_name) intact
-                targets = [
-                    {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                     for k, v in t.items()}
-                    for t in targets
-                ]
+                targets = [ {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k,v in t.items()} for t in targets ]
 
-                # forward + backward
                 loss_dict = self.model(images, targets)
                 loss = sum(loss for loss in loss_dict.values())
                 self.optimizer.zero_grad()
@@ -56,16 +49,28 @@ class Trainer:
 
                 epoch_loss += loss.item()
 
-            # record epoch loss
             avg_loss = epoch_loss / len(dataloader)
-            logger.info(f"📉 Epoch {epoch+1} complete. Avg Loss: {avg_loss:.4f}")
+            logger.info(f"📉 Epoch {epoch+1} complete. Training Loss: {avg_loss:.4f}")
             self.loss_history.append(avg_loss)
 
-            # scheduler step
+            # Validation loss
+            if eval_dataloader is not None:
+                self.model.train()  # to compute loss
+                val_loss = 0.0
+                with torch.no_grad():
+                    for images, targets in eval_dataloader:
+                        images = [img.to(self.device) for img in images]
+                        targets = [ {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k,v in t.items()} for t in targets ]
+                        loss_dict = self.model(images, targets)
+                        val_loss += sum(loss for loss in loss_dict.values()).item()
+                avg_val_loss = val_loss / len(eval_dataloader)
+                logger.info(f"📉 Epoch {epoch+1} complete. Validation Loss: {avg_val_loss:.4f}")
+                self.val_loss_history.append(avg_val_loss)
+
             if scheduler:
                 scheduler.step()
 
-            # --- evaluate on validation set at end of this epoch ---
+            # Evaluation metrics
             if eval_dataloader is not None:
                 self.model.eval()
                 metrics = evaluate_model(
@@ -75,21 +80,27 @@ class Trainer:
                     predictions_dir=predictions_dir,
                     plots_dir=plots_dir,
                     save_predictions=False,
-                    verbose=False     # <-- this prevents plotting during evaluation
+                    verbose=False
                 )
-                # append one point PER epoch
                 self.mean_iou_history.append(metrics["mean_iou"])
                 self.accuracy_history.append(metrics["accuracy"])
                 self.map_history.append(metrics["mAP_50_95"])
-                # back to train for next epoch
                 self.model.train()
 
-        # --- At the end of training, plot the entire history ---
-        plot_loss(self.loss_history, title="Training Loss", dir=plots_dir)
+        # Final plots
+        plot_loss(self.loss_history, self.val_loss_history, dir=plots_dir)
         plot_map_accuracy(self.map_history, self.accuracy_history, dir=plots_dir)
         plot_iou_trend(self.mean_iou_history, dir=plots_dir)
+        # new AP vs IoU plot
+        # use last-per-epoch computed per_iou_map from final metrics
+        _, per_iou_map = compute_coco_map(
+            self.model, eval_dataloader, self.device,
+            iou_min=0.5, iou_max=0.95, iou_step=0.05, conf_thres=0.0
+        )
+        plot_map_vs_iou(per_iou_map, dir=plots_dir)
 
-        return self.loss_history
+        return self.loss_history, self.val_loss_history
+
 
 
 def load_or_train_model(model_file: str, num_classes: int, train_dataloader, device, num_epochs, plots_dir) -> torch.nn.Module:
