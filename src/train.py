@@ -73,11 +73,16 @@ class Trainer:
 
     def _compute_validation_loss(self, dataloader):
         self.model.eval()
+        device = next(self.model.parameters()).device
         running_loss = 0.0
         num_batches = 0
 
         with torch.no_grad():
             for images, targets in dataloader:
+                # move inputs to the model’s device
+                images = [img.to(device) for img in images]
+                targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
                 loss = self._average_batch_loss(images, targets)
                 running_loss += loss.item()
                 num_batches += 1
