@@ -42,7 +42,9 @@ class Trainer:
 
     def _compute_validation_loss(self, dataloader: torch.utils.data.DataLoader) -> float:
         """Compute average validation loss over the provided dataloader."""
-        self.model.eval()
+        # Ensure model is in train mode to compute losses (detection models only return losses in training mode)
+        was_training = self.model.training
+        self.model.train()
         val_loss = 0.0
         with torch.no_grad():
             for images, targets in dataloader:
@@ -52,10 +54,13 @@ class Trainer:
                     for t in targets
                 ]
                 loss_dict = self.model(images, targets)
+                # Expecting a dict of loss components
                 batch_loss = sum(loss for loss in loss_dict.values())
                 val_loss += batch_loss.item()
         avg_val_loss = val_loss / len(dataloader)
-        self.model.train()
+        # Restore original training/eval mode if needed
+        if not was_training:
+            self.model.eval()
         return avg_val_loss
 
     def train(
@@ -81,9 +86,9 @@ class Trainer:
                 can stay empty if you do not save predictions.
             plots_dir: Destination folder for PNG plots.
             evaluate_each_epoch: If ``True`` compute detection metrics (IoU /
-                mAP / TP‑FP‑FN) every epoch; otherwise compute them **once** at
+                mAP / TP-FP-FN) every epoch; otherwise compute them **once** at
                 the very end. Validation *loss* is always computed each epoch
-                because it is cheap and required for the two‑line loss plot.
+                because it is cheap and required for the two-line loss plot.
         Returns:
             Tuple of (training_loss_history, validation_loss_history).
         """
@@ -131,7 +136,7 @@ class Trainer:
             else:
                 self.val_loss_history.append(float('nan'))
 
-            # ─────── Detection metrics (optional per‑epoch) ──────────────
+            # ─────── Detection metrics (optional per-epoch) ──────────────
             if eval_dataloader is not None and evaluate_each_epoch:
                 self.model.eval()
                 last_metrics = evaluate_model(
@@ -149,7 +154,7 @@ class Trainer:
                 last_per_iou_map = last_metrics["per_iou_map"]
                 self.model.train()
             else:
-                # Maintain equal‑length histories for plotting later.
+                # Maintain equal-length histories for plotting later.
                 if eval_dataloader is not None:
                     self.mean_iou_history.append(float("nan"))
                     self.accuracy_history.append(float("nan"))
@@ -160,7 +165,7 @@ class Trainer:
                 scheduler.step()
 
         # ─────────────────────────────────────────────────────────────────┐
-        # Post‑training final evaluation (if not done every epoch)        │
+        # Post-training final evaluation (if not done every epoch)        │
         # ─────────────────────────────────────────────────────────────────┘
         if eval_dataloader is not None and not evaluate_each_epoch:
             last_metrics = evaluate_model(
