@@ -74,27 +74,17 @@ class Trainer:
     def _compute_validation_loss(self, dataloader):
         self.model.eval()
         running_loss = 0.0
-        total_samples = 0
+        num_batches = 0
 
         with torch.no_grad():
             for images, targets in dataloader:
-                images = [img.to(self.device) for img in images]
-                targets = [
-                {
-                    k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                    for k, v in t.items()
-                }
-                for t in targets
-]
                 loss = self._average_batch_loss(images, targets)
-                
-                # Accumulate the batch loss properly
-                batch_size = len(images)
-                running_loss += loss.item() * batch_size
-                total_samples += batch_size
-        
+                running_loss += loss.item()
+                num_batches += 1
+
         self.model.train()
-        return running_loss / total_samples if total_samples > 0 else 0
+        return running_loss / num_batches if num_batches > 0 else 0.0
+
 
     # ───────────────────────────────────────────────────────────────────────
     # Public API
