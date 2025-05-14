@@ -79,7 +79,13 @@ class Trainer:
         with torch.no_grad():
             for images, targets in dataloader:
                 images = [img.to(self.device) for img in images]
-                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+                targets = [
+                {
+                    k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                    for k, v in t.items()
+                }
+                for t in targets
+]
                 loss = self._average_batch_loss(images, targets)
                 
                 # Accumulate the batch loss properly
