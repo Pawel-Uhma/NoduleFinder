@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List, Tuple, Optional, Union, Dict
+from typing import List, Tuple, Optional, Dict
 
 import torch
 from torch.optim.lr_scheduler import StepLR
@@ -40,60 +40,24 @@ class Trainer:
         self.accuracy_history: List[float] = []
         self.mean_iou_history: List[float] = []
 
-    # ───────────────────────────────────────────────────────────────────────
-    # Helpers
-    # ───────────────────────────────────────────────────────────────────────
-    def _reduce_to_scalar(self, obj: Union[torch.Tensor,
-                                        Dict, List, Tuple]) -> torch.Tensor:
-        """
-        Recursively collapse the loss tree returned by the model into **one**
-        scalar tensor so it can be back-propagated and logged safely.
-
-            • Tensor (any shape)        →   tensor.sum()
-            • Dict  {k: v}              →   Σ  _reduce_to_scalar(v)
-            • List / Tuple [v, …]       →   Σ  _reduce_to_scalar(v)
-        """
-        if torch.is_tensor(obj):
-            # keep gradients – no .item() here
-            return obj if obj.dim() == 0 else obj.sum()
-
-        if isinstance(obj, dict):
-            return sum(self._reduce_to_scalar(v) for v in obj.values())
-
-        if isinstance(obj, (list, tuple)):
-            return sum(self._reduce_to_scalar(v) for v in obj)
-
-        raise TypeError(f"Unsupported loss structure: {type(obj)}")
-
-
-    def _average_batch_loss(self, images, targets) -> torch.Tensor:
-        """Forward pass + safe aggregation to a single scalar loss."""
-        raw_losses = self.model(images, targets)
-        return self._reduce_to_scalar(raw_losses)
-
-    def _compute_validation_loss(self, dataloader):
+    def _compute_validation_loss(self, dataloader: torch.utils.data.DataLoader) -> float:
+        """Compute average validation loss over the provided dataloader."""
         self.model.eval()
-        device = next(self.model.parameters()).device
-        running_loss = 0.0
-        num_batches = 0
-
+        val_loss = 0.0
         with torch.no_grad():
             for images, targets in dataloader:
-                # move inputs to the model’s device
-                images = [img.to(device) for img in images]
-                targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-                loss = self._average_batch_loss(images, targets)
-                running_loss += loss.item()
-                num_batches += 1
-
+                images = [img.to(self.device) for img in images]
+                targets = [
+                    {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in t.items()}
+                    for t in targets
+                ]
+                loss_dict = self.model(images, targets)
+                batch_loss = sum(loss for loss in loss_dict.values())
+                val_loss += batch_loss.item()
+        avg_val_loss = val_loss / len(dataloader)
         self.model.train()
-        return running_loss / num_batches if num_batches > 0 else 0.0
+        return avg_val_loss
 
-
-    # ───────────────────────────────────────────────────────────────────────
-    # Public API
-    # ───────────────────────────────────────────────────────────────────────
     def train(
         self,
         dataloader: torch.utils.data.DataLoader,
@@ -128,7 +92,6 @@ class Trainer:
         self.model.to(self.device)
         os.makedirs(plots_dir, exist_ok=True)
 
-        # Pre‑declare to avoid UnboundLocalError when flag is False
         last_per_iou_map = None  # type: ignore
         last_metrics = None      # type: ignore
 
@@ -147,8 +110,9 @@ class Trainer:
                     }
                     for t in targets
                 ]
+                loss_dict = self.model(images, targets)
+                total_loss = sum(loss for loss in loss_dict.values())
 
-                total_loss = self._average_batch_loss(images, targets)
                 self.optimizer.zero_grad()
                 total_loss.backward()
                 self.optimizer.step()
@@ -165,7 +129,6 @@ class Trainer:
                 self.val_loss_history.append(avg_val_loss)
                 logger.info(f"📉 Validation loss: {avg_val_loss:.4f}")
             else:
-                # keep histories aligned
                 self.val_loss_history.append(float('nan'))
 
             # ─────── Detection metrics (optional per‑epoch) ──────────────
@@ -234,10 +197,7 @@ class Trainer:
         plot_map_accuracy(self.map_history, self.accuracy_history, dir=plots_dir)
         plot_iou_trend(self.mean_iou_history, dir=plots_dir)
 
-        # The per‑IoU mAP curve either comes from the last per‑epoch eval or
-        # from the final one‑off evaluation directly above.
         if eval_dataloader is not None and last_per_iou_map is None:
-            # Compute it now only if truly missing.
             _, last_per_iou_map = compute_coco_map(
                 self.model,
                 eval_dataloader,
@@ -278,7 +238,6 @@ def load_or_train_model(
         logger.info("✅ Model loaded and moved to device")
         return model
 
-    # ───────────────────────────── Train from scratch ──────────────────────
     logger.info("❌ No saved model found – starting fresh training …")
     model = ModelFactory.get_model(num_classes)
     model.to(device)
@@ -294,7 +253,7 @@ def load_or_train_model(
         num_epochs=num_epochs,
         scheduler=scheduler,
         eval_dataloader=eval_dataloader,
-        predictions_dir="",  # not saving predictions here
+        predictions_dir="",
         plots_dir=plots_dir,
         evaluate_each_epoch=evaluate_each_epoch,
     )
