@@ -71,23 +71,24 @@ class Trainer:
         raw_losses = self.model(images, targets)
         return self._reduce_to_scalar(raw_losses)
 
-    def _compute_validation_loss(self, dataloader) -> float:
-        """Run a quick forward pass on the validation set and return mean loss."""
+    def _compute_validation_loss(self, dataloader):
         self.model.eval()
         running_loss = 0.0
+        total_samples = 0
+
         with torch.no_grad():
             for images, targets in dataloader:
                 images = [img.to(self.device) for img in images]
-                targets = [
-                    {
-                        k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                        for k, v in t.items()
-                    }
-                    for t in targets
-                ]
-                running_loss += self._average_batch_loss(images, targets).item()
+                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+                loss = self._average_batch_loss(images, targets)
+                
+                # Accumulate the batch loss properly
+                batch_size = len(images)
+                running_loss += loss.item() * batch_size
+                total_samples += batch_size
+        
         self.model.train()
-        return running_loss / len(dataloader)
+        return running_loss / total_samples if total_samples > 0 else 0
 
     # ───────────────────────────────────────────────────────────────────────
     # Public API
