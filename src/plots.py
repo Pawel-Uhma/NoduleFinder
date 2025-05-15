@@ -14,7 +14,10 @@ def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss"
     if val_loss:
         val_epochs = range(1, len(val_loss) + 1)
         plt.plot(val_epochs, val_loss, label="Validation Loss", marker="o")
-        
+
+    # Ensure x-axis ticks are integer epochs
+    plt.xticks(list(epochs))
+
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -30,9 +33,13 @@ def plot_map_accuracy(map_history, accuracy_history, title="Validation mAP and A
     os.makedirs(dir, exist_ok=True)
     filename = os.path.join(dir, "mAP_accuracy.png")
 
+    # Use integer epoch indices on x-axis
+    epochs = range(1, len(map_history) + 1)
     plt.figure()
-    plt.plot(map_history, label="mAP@[.50:.95]", marker='o')
-    plt.plot(accuracy_history, label="Accuracy", marker='o')
+    plt.plot(epochs, map_history, label="mAP@[.50:.95]", marker='o')
+    plt.plot(epochs, accuracy_history, label="Accuracy", marker='o')
+    plt.xticks(list(epochs))
+
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -48,8 +55,12 @@ def plot_iou_trend(mean_iou_history, title="Mean IoU Trend", xlabel="Epoch", yla
     os.makedirs(dir, exist_ok=True)
     filename = os.path.join(dir, "IoU_trend.png")
 
+    # Integer epochs on x-axis
+    epochs = range(1, len(mean_iou_history) + 1)
     plt.figure()
-    plt.plot(mean_iou_history, label="Mean IoU", marker='o')
+    plt.plot(epochs, mean_iou_history, label="Mean IoU", marker='o')
+    plt.xticks(list(epochs))
+
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
