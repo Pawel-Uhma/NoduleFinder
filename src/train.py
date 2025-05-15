@@ -108,10 +108,7 @@ class Trainer:
                 self.val_loss_history.append(avg_val_loss)
                 logger.info(f"📉 Validation loss: {avg_val_loss:.4f}")
 
-                # — ReduceLROnPlateau step (Scheduling #1)
-                if isinstance(scheduler, ReduceLROnPlateau):
-                    scheduler.step(avg_val_loss)
-                elif scheduler is not None:
+                if scheduler is not None and not isinstance(scheduler, ReduceLROnPlateau):
                     scheduler.step()
 
                 # — Early stopping (Stop after no improv for N epochs) #2
