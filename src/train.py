@@ -66,13 +66,8 @@ class Trainer:
         predictions_dir: str = "",
         plots_dir: str = "./plots/",
         evaluate_each_epoch: bool = True,
-        early_stop_patience: int = 5,            # new arg
+        early_stop_patience: int = 5,
     ) -> Tuple[List[float], List[float]]:
-        """(…)
-        Added:
-          - ReduceLROnPlateau scheduling
-          - early stopping
-        """
         logger.info("🚀 Starting training loop.")
         self.model.to(self.device)
         os.makedirs(plots_dir, exist_ok=True)
@@ -85,17 +80,19 @@ class Trainer:
             self.model.train()
             epoch_loss = 0.0
 
-            # ─────── Training ───────────────────────────────
             for images, targets in tqdm(dataloader, desc=f"Epoch {epoch + 1}"):
                 images = [img.to(self.device) for img in images]
-                targets = [{k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                            for k, v in t.items()} for t in targets]
+                targets = [
+                    {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                     for k, v in t.items()}
+                    for t in targets
+                ]
                 loss_dict = self.model(images, targets)
                 total_loss = sum(loss for loss in loss_dict.values())
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
-                # clip gradients for stability
+                # — Gradient clipping (regularization #3)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10)
                 self.optimizer.step()
 
@@ -105,19 +102,19 @@ class Trainer:
             self.loss_history.append(avg_train_loss)
             logger.info(f"📉 Training loss: {avg_train_loss:.4f}")
 
-            # ─────── Validation loss ─────────────────────────
             if eval_dataloader is not None:
+                # Compute val loss
                 avg_val_loss = self._compute_validation_loss(eval_dataloader)
                 self.val_loss_history.append(avg_val_loss)
                 logger.info(f"📉 Validation loss: {avg_val_loss:.4f}")
 
-                # ─────── ReduceLROnPlateau step ───────────────
+                # — ReduceLROnPlateau step (Scheduling #1)
                 if isinstance(scheduler, ReduceLROnPlateau):
                     scheduler.step(avg_val_loss)
                 elif scheduler is not None:
                     scheduler.step()
 
-                # ─────── Early stopping ────────────────────────
+                # — Early stopping (Stop after no improv for N epochs) #2
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
                     epochs_no_improve = 0
@@ -126,9 +123,11 @@ class Trainer:
                     if epochs_no_improve >= early_stop_patience:
                         logger.info(f"🛑 Early stopping at epoch {epoch + 1}")
                         break
+
             else:
+                # no eval loader → just step non-plateau schedulers
                 self.val_loss_history.append(float('nan'))
-                if scheduler is not None:
+                if scheduler is not None and not isinstance(scheduler, ReduceLROnPlateau):
                     scheduler.step()
 
             # ─────── Detection metrics (optional per-epoch) ──────────────
@@ -226,30 +225,32 @@ def load_or_train_model(
     plots_dir: str,
     evaluate_each_epoch: bool = True,
 ) -> torch.nn.Module:
-    """(…)
-    Switched to AdamW + ReduceLROnPlateau + pass early_stop_patience through Trainer.
-    """
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
     if os.path.exists(model_file):
-        # … (unchanged) …
+        logger.info("📦 Found saved model – loading from disk …")
+        model = ModelFactory.get_model(num_classes)
+        model.load_state_dict(torch.load(model_file, map_location=device))
+        model.to(device)
+        logger.info("✅ Model loaded and moved to device")
         return model
 
+    logger.info("❌ No saved model found – starting fresh training …")
     model = ModelFactory.get_model(num_classes).to(device)
 
-    # ——— Regularized optimizer ——————————————
+    # — Optimizer with decoupled weight decay (regularization #3) —
     optimizer = AdamW(
         model.parameters(),
         lr=0.005,
         weight_decay=5e-4
     )
 
-    # ——— Responsive LR scheduler —————————————
+    # — ReduceLROnPlateau (scheduling #1) —
     scheduler = ReduceLROnPlateau(
         optimizer,
         mode='min',
         factor=0.5,
-        patience=3,
+        patience=3
     )
 
     trainer = Trainer(model, optimizer, device)
@@ -261,7 +262,7 @@ def load_or_train_model(
         predictions_dir="",
         plots_dir=plots_dir,
         evaluate_each_epoch=evaluate_each_epoch,
-        early_stop_patience=5,      # you can tune this
+        early_stop_patience=5,  # can tune
     )
 
     torch.save(model.state_dict(), model_file)
