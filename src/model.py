@@ -2,7 +2,6 @@ import torchvision
 from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import torch.nn as nn
-from loguru import logger
 
 class ModelFactory:
     @staticmethod
@@ -12,7 +11,6 @@ class ModelFactory:
         detection_score_thresh: float = 0.1,
         detections_per_img: int = 50
     ):
-        logger.info("🔧 Initializing Faster R-CNN model with limited backbone tuning...")
         # load COCO-pretrained weights and freeze early layers
         weights = torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights.COCO_V1
         model = fasterrcnn_resnet50_fpn(
@@ -34,9 +32,4 @@ class ModelFactory:
         model.roi_heads.score_thresh = detection_score_thresh
         model.roi_heads.detections_per_img = detections_per_img
 
-        logger.info(
-            "✅ Model ready: frozen backbone layers except last "
-            f"{trainable_backbone_layers}, new head initialized, "
-            f"score_thresh={detection_score_thresh}, max_detections={detections_per_img}"
-        )
         return model
