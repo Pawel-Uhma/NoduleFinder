@@ -29,7 +29,7 @@ def plot_loss(training_loss, val_loss=None, title="Training and Validation Loss"
     print(f"✅ Loss plot saved to {filename}")
 
 
-def plot_map_accuracy(map_history, accuracy_history, title="Validation mAP and Accuracy", xlabel="Epoch", ylabel="Value", dir="./plots/"):
+def plot_map_accuracy(map_history, accuracy_history, title="mAP and Accuracy", xlabel="Epoch", ylabel="Value", dir="./plots/"):
     os.makedirs(dir, exist_ok=True)
     filename = os.path.join(dir, "mAP_accuracy.png")
 
