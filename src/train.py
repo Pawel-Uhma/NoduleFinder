@@ -3,8 +3,7 @@ import logging
 from typing import List, Tuple, Optional, Dict
 
 import torch
-from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau
-from torch.optim import AdamW
+from torch.optim.lr_scheduler import StepLR
 from tqdm import tqdm
 
 from model import ModelFactory
@@ -16,9 +15,16 @@ from plots import (
 )
 from evaluate import evaluate_model, compute_coco_map
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trainer
+# ─────────────────────────────────────────────────────────────────────────────
 class Trainer:
     """Wrapper that handles the full training / validation / evaluation loop."""
 
@@ -63,28 +69,31 @@ class Trainer:
         num_epochs: int,
         scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         eval_dataloader: Optional[torch.utils.data.DataLoader] = None,
-        predictions_dir: str = "",
+        predictions_dir: str = "",  # forwarded to evaluate_model
         plots_dir: str = "./plots/",
         evaluate_each_epoch: bool = True,
-        early_stop_patience: int = 5,
     ) -> Tuple[List[float], List[float]]:
+
         logger.info("🚀 Starting training loop.")
         self.model.to(self.device)
         os.makedirs(plots_dir, exist_ok=True)
 
-        best_val_loss = float('inf')
-        epochs_no_improve = 0
+        last_per_iou_map = None  # type: ignore
+        last_metrics = None      # type: ignore
 
         for epoch in range(num_epochs):
             logger.info(f"🔁 Epoch {epoch + 1}/{num_epochs}")
             self.model.train()
             epoch_loss = 0.0
 
+            # ─────── Training pass ───────────────────────────────────────
             for images, targets in tqdm(dataloader, desc=f"Epoch {epoch + 1}"):
                 images = [img.to(self.device) for img in images]
                 targets = [
-                    {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
-                     for k, v in t.items()}
+                    {
+                        k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                        for k, v in t.items()
+                    }
                     for t in targets
                 ]
                 loss_dict = self.model(images, targets)
@@ -92,8 +101,6 @@ class Trainer:
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
-                # — Gradient clipping (regularization #3)
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10)
                 self.optimizer.step()
 
                 epoch_loss += total_loss.item()
@@ -102,30 +109,13 @@ class Trainer:
             self.loss_history.append(avg_train_loss)
             logger.info(f"📉 Training loss: {avg_train_loss:.4f}")
 
+            # ─────── Validation loss (always) ────────────────────────────
             if eval_dataloader is not None:
-                # Compute val loss
                 avg_val_loss = self._compute_validation_loss(eval_dataloader)
                 self.val_loss_history.append(avg_val_loss)
                 logger.info(f"📉 Validation loss: {avg_val_loss:.4f}")
-
-                if scheduler is not None and not isinstance(scheduler, ReduceLROnPlateau):
-                    scheduler.step()
-
-                # — Early stopping (Stop after no improv for N epochs) #2
-                if avg_val_loss < best_val_loss:
-                    best_val_loss = avg_val_loss
-                    epochs_no_improve = 0
-                else:
-                    epochs_no_improve += 1
-                    if epochs_no_improve >= early_stop_patience:
-                        logger.info(f"🛑 Early stopping at epoch {epoch + 1}")
-                        break
-
             else:
-                # no eval loader → just step non-plateau schedulers
                 self.val_loss_history.append(float('nan'))
-                if scheduler is not None and not isinstance(scheduler, ReduceLROnPlateau):
-                    scheduler.step()
 
             # ─────── Detection metrics (optional per-epoch) ──────────────
             if eval_dataloader is not None and evaluate_each_epoch:
@@ -222,6 +212,8 @@ def load_or_train_model(
     plots_dir: str,
     evaluate_each_epoch: bool = True,
 ) -> torch.nn.Module:
+    """Load a saved model if it exists; otherwise train from scratch."""
+
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
     if os.path.exists(model_file):
@@ -233,22 +225,13 @@ def load_or_train_model(
         return model
 
     logger.info("❌ No saved model found – starting fresh training …")
-    model = ModelFactory.get_model(num_classes).to(device)
+    model = ModelFactory.get_model(num_classes)
+    model.to(device)
 
-    # — Optimizer with decoupled weight decay (regularization #3) —
-    optimizer = AdamW(
-        model.parameters(),
-        lr=0.005,
-        weight_decay=5e-4
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005
     )
-
-    # — ReduceLROnPlateau (scheduling #1) —
-    scheduler = ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        factor=0.5,
-        patience=3
-    )
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
     trainer = Trainer(model, optimizer, device)
     trainer.train(
@@ -259,7 +242,6 @@ def load_or_train_model(
         predictions_dir="",
         plots_dir=plots_dir,
         evaluate_each_epoch=evaluate_each_epoch,
-        early_stop_patience=5,  # can tune
     )
 
     torch.save(model.state_dict(), model_file)
