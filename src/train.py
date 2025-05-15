@@ -29,9 +29,6 @@ class Trainer:
         self.map_history: List[float] = []
         self.accuracy_history: List[float] = []
         self.mean_iou_history: List[float] = []
-        # Histories for test set metrics
-        self.test_map_history: List[float] = []
-        self.test_accuracy_history: List[float] = []
 
     def _compute_validation_loss(self, dataloader: torch.utils.data.DataLoader) -> float:
         was_training = self.model.training
@@ -58,7 +55,6 @@ class Trainer:
         num_epochs: int,
         scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         eval_dataloader: Optional[torch.utils.data.DataLoader] = None,
-        test_dataloader: Optional[torch.utils.data.DataLoader] = None,
         predictions_dir: str = "",  # forwarded to evaluate_model
         plots_dir: str = "./plots/",
         evaluate_each_epoch: bool = True,
@@ -124,28 +120,12 @@ class Trainer:
                 self.map_history.append(last_metrics["mAP_50_95"])
                 last_per_iou_map = last_metrics["per_iou_map"]
                 self.model.train()
-                # Also evaluate on test set if provided
-                if test_dataloader is not None:
-                    test_metrics = evaluate_model(
-                        self.model,
-                        test_dataloader,
-                        self.device,
-                        predictions_dir,
-                        plots_dir,
-                        save_predictions=False,
-                        verbose=False,
-                    )
-                    self.test_accuracy_history.append(test_metrics["accuracy"])
-                    self.test_map_history.append(test_metrics["mAP_50_95"])
             else:
                 # Maintain equal-length histories for plotting later.
                 if eval_dataloader is not None:
                     self.mean_iou_history.append(float("nan"))
                     self.accuracy_history.append(float("nan"))
                     self.map_history.append(float("nan"))
-                if test_dataloader is not None:
-                    self.test_accuracy_history.append(float("nan"))
-                    self.test_map_history.append(float("nan"))
 
             # ─────── Scheduler step (end of epoch) ───────────────────────
             if scheduler is not None:
@@ -169,19 +149,6 @@ class Trainer:
             self.mean_iou_history[-1] = last_metrics["mean_iou"]
             self.accuracy_history[-1] = last_metrics["accuracy"]
             self.map_history[-1] = last_metrics["mAP_50_95"]
-        # Evaluate test set if not done per-epoch
-        if test_dataloader is not None and not evaluate_each_epoch:
-            test_metrics = evaluate_model(
-                self.model,
-                test_dataloader,
-                self.device,
-                predictions_dir,
-                plots_dir,
-                save_predictions=False,
-                verbose=True,
-            )
-            self.test_accuracy_history[-1] = test_metrics["accuracy"]
-            self.test_map_history[-1] = test_metrics["mAP_50_95"]
 
         if last_metrics is not None:
             logger.info(
@@ -192,14 +159,9 @@ class Trainer:
             for thr, ap in last_metrics["per_iou_map"].items():
                 logger.info(f"AP@{thr:.2f}: {ap:.4f}")
 
-        # Plot losses and IOU trends
         plot_loss(self.loss_history, self.val_loss_history, dir=plots_dir)
+        plot_map_accuracy(self.map_history, self.accuracy_history, dir=plots_dir)
         plot_iou_trend(self.mean_iou_history, dir=plots_dir)
-        # Plot validation metrics
-        plot_map_accuracy(self.map_history, self.accuracy_history, dir=plots_dir, title="Validation mAP vs Accuracy")
-        # Plot test metrics if available
-        if test_dataloader is not None:
-            plot_map_accuracy(self.test_map_history, self.test_accuracy_history, dir=plots_dir, title="Test mAP vs Accuracy")
 
         if eval_dataloader is not None and last_per_iou_map is None:
             _, last_per_iou_map = compute_coco_map(
@@ -221,7 +183,6 @@ def load_or_train_model(
     num_classes: int,
     train_dataloader: torch.utils.data.DataLoader,
     eval_dataloader: Optional[torch.utils.data.DataLoader],
-    test_dataloader: Optional[torch.utils.data.DataLoader],
     device: torch.device,
     num_epochs: int,
     plots_dir: str,
@@ -253,7 +214,6 @@ def load_or_train_model(
         num_epochs=num_epochs,
         scheduler=scheduler,
         eval_dataloader=eval_dataloader,
-        test_dataloader=test_dataloader,
         predictions_dir="",
         plots_dir=plots_dir,
         evaluate_each_epoch=evaluate_each_epoch,
